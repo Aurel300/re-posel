@@ -1,6 +1,6 @@
 use sailfish::Template;
 
-use crate::adb::AdbXref;
+use crate::adb::{AdbEntryKind, AdbXref};
 
 pub mod nav;
 
@@ -8,6 +8,7 @@ pub mod nav;
 #[template(path = "../src/templates/bytecode.stpl")]
 pub struct Bytecode<'a> {
     pub title: String,
+    pub kind: &'a AdbEntryKind,
     pub rendered_breadcrumbs: String,
     pub rendered_hierarchy: &'a str,
     pub code: crate::dis::DisCode<'a>,

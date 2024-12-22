@@ -158,8 +158,13 @@ pub fn apply_known(root: &mut NavTree, entries: &mut HashMap<String, AdbEntry>) 
         ], None);
     });
 
-    c.open_key("1069", "Intro", |_c| {
-    });
+    c.open_key("1069", "Chapter 1 intro", |_| {});
+    c.open_key("106a", "Chapter 2 intro", |_| {});
+    c.open_key("106b", "Chapter 3 intro", |_| {});
+    c.open_key("106c", "Chapter 4 intro", |_| {});
+    c.open_key("106d", "Chapter 5 intro", |_| {});
+    c.open_key("106e", "Chapter 6 intro", |_| {});
+    c.close_key("106f", "Sam", |_| {});
 
     c.close_key("1079", "Chapter", |_| {});
 

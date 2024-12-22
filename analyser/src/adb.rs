@@ -12,6 +12,7 @@ pub struct AdbIndexEntry {
 pub enum AdbEntryKind {
     Dummy,
     Global,
+    Scene,
     Code(Vec<u8>),
     String {
         raw: Vec<u8>,
@@ -31,6 +32,7 @@ pub struct AdbEntry {
     pub kind: AdbEntryKind,
     pub region: Option<AdbEntryRegion>,
     pub global: Option<AdbEntryGlobal>,
+    pub scene: Option<AdbEntryScene>,
     pub xrefs: Vec<AdbXref>,
 }
 
@@ -41,13 +43,13 @@ pub struct AdbXref {
     pub kind: AdbXrefKind,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdbXrefKind {
-    Unknown,
     DialogueText,
     Scene,
     GlobalR,
     GlobalW,
+    GlobalWConst(u32),
     Code,
     Region,
     Text,
@@ -64,6 +66,12 @@ pub struct AdbEntryGlobal {
     values: HashMap<u32, String>,
 }
 
+#[derive(Default, Debug)]
+pub struct AdbEntryScene {
+    pub width: Option<usize>,
+    pub bg_reference: Vec<(i32, i32, String)>,
+}
+
 impl AdbEntry {
     pub fn new(kind: AdbEntryKind) -> Self {
         Self {
@@ -72,18 +80,33 @@ impl AdbEntry {
             kind,
             region: None,
             global: None,
+            scene: None,
             xrefs: Vec::new(),
         }
+    }
+
+    pub fn is_region(&self, key: &str) -> bool {
+        matches!(self.kind, AdbEntryKind::Raw(_))
+            && (self.region.is_some()
+                || key.ends_with(".rp")
+                || key.ends_with(".r")
+                || self.xrefs.iter().any(|xref| xref.kind == AdbXrefKind::Region))
+    }
+
+    pub fn is_dialogue_text(&self) -> bool {
+        matches!(self.kind, AdbEntryKind::String { .. })
+            && self.xrefs.iter().any(|xref| xref.kind == AdbXrefKind::DialogueText)
     }
 
     pub fn describe(&self, key: &str) -> &'static str {
         match &self.kind {
             &AdbEntryKind::Code(_) => "code",
             AdbEntryKind::String { .. } => "string",
-            AdbEntryKind::Raw(_) if self.region.is_some() || key.ends_with(".rp") || key.ends_with(".r") => "reg",
+            AdbEntryKind::Raw(_) if self.is_region(key) => "reg",
             AdbEntryKind::Raw(_) => "raw",
             AdbEntryKind::Dummy => "dummy",
             AdbEntryKind::Global => "glb",
+            AdbEntryKind::Scene => "scene",
         }
     }
 
@@ -99,7 +122,8 @@ impl AdbEntry {
     pub fn size(&self) -> usize {
         match &self.kind {
             AdbEntryKind::Dummy
-            | AdbEntryKind::Global => 0,
+            | AdbEntryKind::Global
+            | AdbEntryKind::Scene => 0,
             AdbEntryKind::Code(raw)
             | AdbEntryKind::String { raw, .. }
             | AdbEntryKind::Raw(raw) => raw.len(),

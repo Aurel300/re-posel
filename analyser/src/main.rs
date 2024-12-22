@@ -18,7 +18,7 @@ mod patches;
 mod templates;
 mod xor;
 
-use adb::{AdbEntry, AdbEntryKind, AdbXref};
+use adb::{AdbEntry, AdbEntryKind, AdbXref, AdbXrefKind};
 
 #[derive(Clone, Copy)]
 pub struct Resources<'a> {
@@ -162,8 +162,8 @@ fn main() {
             }
             println!("{} assets in .grp file(s)", data.len());
 
+            // First pass: find cross references in code objects and regions.
             if do_xref {
-                // First pass: find cross references.
                 let res = Resources {
                     entries: &entries,
                     data: &data,
@@ -198,10 +198,48 @@ fn main() {
                     }.into_iter().map(|xref| (key.to_string(), xref)));
                 }
 
-                // Process cross references.
+                // Process cross references from code objects.
                 for (from, xref) in xrefs {
                     entries.entry(xref.other_key)
-                        .or_insert_with(|| AdbEntry::new(AdbEntryKind::Global))
+                        .or_insert_with(|| AdbEntry::new(match xref.kind {
+                            AdbXrefKind::GlobalR | AdbXrefKind::GlobalW => AdbEntryKind::Global,
+                            AdbXrefKind::Scene => AdbEntryKind::Scene,
+                            _ => AdbEntryKind::Dummy,
+                        }))
+                        .xrefs
+                        .push(AdbXref {
+                            other_key: from.to_string(),
+                            loc: xref.loc,
+                            kind: xref.kind,
+                        });
+                }
+
+                // Find references to scenes in regions.
+                let res = Resources {
+                    entries: &entries,
+                    data: &data,
+                    do_analyse: false,
+                    first_pass: true,
+                };
+                let mut xrefs = Vec::new();
+                for (key, entry) in &entries {
+                    xrefs.extend(match &entry.kind {
+                        AdbEntryKind::Raw(..) if entry.is_region(key) => {
+                            dis::analyse_region(entry, res).unwrap().1.finalise_xrefs()
+                        }
+                        _ => continue,
+                    }.into_iter().map(|xref| (key.to_string(), xref)));
+                }
+
+                // Process cross references from code objects.
+                // TODO: code duplication
+                for (from, xref) in xrefs {
+                    entries.entry(xref.other_key)
+                        .or_insert_with(|| AdbEntry::new(match xref.kind {
+                            AdbXrefKind::GlobalR | AdbXrefKind::GlobalW => AdbEntryKind::Global,
+                            AdbXrefKind::Scene => AdbEntryKind::Scene,
+                            _ => AdbEntryKind::Dummy,
+                        }))
                         .xrefs
                         .push(AdbXref {
                             other_key: from.to_string(),
@@ -240,8 +278,9 @@ fn main() {
             let mut count_region = 0;
             let mut count_code = 0;
             let mut count_code_error = 0;
-            let mut count_globals = 0;
+            let mut count_global = 0;
             let mut count_dummy = 0;
+            let mut count_scene = 0;
             let entry_filter = filter.map(|pat| regex::Regex::new(&pat).unwrap());
             for (key, entry) in &entries {
                 if let Some(re) = entry_filter.as_ref() {
@@ -267,18 +306,23 @@ fn main() {
                 println!("  {key} ({}, {} bytes)", entry.describe(key), entry.size());
                 let mut pretty = None;
                 let code = match &entry.kind {
+                    AdbEntryKind::String { raw, .. } if entry.is_dialogue_text() => {
+                        count_string += 1; // TODO
+                        dis::analyse_dialogue_text(raw, res).unwrap()
+                    }
                     AdbEntryKind::String { raw, decoded, .. } => {
                         count_string += 1;
                         dis::analyse_string(raw, decoded, res).unwrap()
                     }
+                    AdbEntryKind::Raw(_) if entry.is_region(key) => {
+                        count_region += 1;
+                        let (p, code) = dis::analyse_region(entry, res).unwrap();
+                        pretty = Some(p);
+                        code
+                    }
                     AdbEntryKind::Raw(c) => {
-                        if entry.region.is_some() || key.ends_with(".r") || key.ends_with(".rp") {
-                            count_region += 1;
-                            dis::analyse_region(entry, res).unwrap()
-                        } else {
-                            count_raw += 1;
-                            dis::analyse_raw(c, res).unwrap()
-                        }
+                        count_raw += 1;
+                        dis::analyse_raw(c, res).unwrap()
                     }
                     AdbEntryKind::Code(c) => {
                         count_code += 1;
@@ -293,11 +337,15 @@ fn main() {
                         })
                     }
                     AdbEntryKind::Global => {
-                        count_globals += 1;
+                        count_global += 1;
                         dis::analyse_dummy(res).unwrap()
                     }
                     AdbEntryKind::Dummy => {
                         count_dummy += 1;
+                        dis::analyse_dummy(res).unwrap()
+                    }
+                    AdbEntryKind::Scene => {
+                        count_scene += 1;
                         dis::analyse_dummy(res).unwrap()
                     }
                 };
@@ -308,6 +356,7 @@ fn main() {
                 sorted_xrefs.sort_by_cached_key(|xref| (xref.other_key.clone(), xref.loc));
                 std::fs::write(&output, templates::Bytecode {
                     title: key.to_string(),
+                    kind: &entry.kind,
                     rendered_hierarchy: &rendered_hierarchy,
                     rendered_breadcrumbs,
                     code,
@@ -317,11 +366,12 @@ fn main() {
                 output.pop();
             }
             println!("code:    {count_code}, errored: {count_code_error}");
-            println!("globals: {count_globals}");
+            println!("globals: {count_global}");
             println!("dummy:   {count_dummy}");
             println!("raw:     {count_raw}");
-            println!("region:  {count_region}");
+            println!("regions: {count_region}");
             println!("strings: {count_string}");
+            println!("scenes:  {count_scene}");
         }
         CliCommand::Patch { output, .. } => {
             assert_ne!(db_path, output);

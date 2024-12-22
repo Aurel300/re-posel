@@ -67,6 +67,11 @@ a:hover {
     display: none;
 }
 
+#top:has(#f-hideasm:checked) ~ main .line .hex {
+    height: 19px;
+    overflow-y: hidden;
+}
+
 main:has(.hex .mark:hover) .hex .mark {
     background-color: #bbb;
 }
@@ -143,6 +148,9 @@ main {
         .addr, .hex, .asm, .dec, .com {
             font-family: sans-serif;
         }
+    }
+    .hl-com {
+        color: #999;
     }
     .hl-kw {
         color: #68f;

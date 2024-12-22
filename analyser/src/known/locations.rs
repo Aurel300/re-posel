@@ -21,25 +21,17 @@ pub(super) fn apply_known_locations(c: &mut KnownContext) {
         c.close_key("18ca", "BG: Sharp edge", |_| {});
         c.close_key("18cd", "BG: The old mine", |_| {});
         c.close_key("18d0", "BG: Hermann's house", |_| {});
-
-        c.region_reference(&[
-            &["18bb", "1756"],
-            &["18bb", "18c1"],
-            &["18bb", "18c4"],
-            &["18bb", "18c8"],
-            &["18bb", "18cb"],
-            &["18bb", "18ce"],
-            &["18bb", "18d1"],
-            &["18bb", "18d3"],
-            &["18bb", "18d6"],
-        ], &[
-            (  0,   0, "gfx1.grp/mapa-cista.bmp"),
-            (313, 460, "gfx1.grp/sanatorium.bmp"),
-            ( 65, 372, "gfx1.grp/druidi.bmp"),
-            (610, 386, "gfx1.grp/majak.bmp"),
-            ( 65, 244, "gfx1.grp/doly.bmp"),
-            (482, 236, "gfx1.grp/Hermann.bmp"),
-        ], None);
+    });
+    c.key("K2_Mapa", |k| {
+        k.name = Some("Map".to_string());
+        k.scene.get_or_insert_default().bg_reference.extend([
+            (  0,   0, "gfx1.grp/mapa-cista.bmp".to_string()),
+            (313, 460, "gfx1.grp/sanatorium.bmp".to_string()),
+            ( 65, 372, "gfx1.grp/druidi.bmp".to_string()),
+            (610, 386, "gfx1.grp/majak.bmp".to_string()),
+            ( 65, 244, "gfx1.grp/doly.bmp".to_string()),
+            (482, 236, "gfx1.grp/Hermann.bmp".to_string()),
+        ]);
     });
 
     // locations
@@ -71,18 +63,29 @@ pub(super) fn apply_known_locations(c: &mut KnownContext) {
         c.close_key("1c63", "Walk sounds", |_| {});
         c.close_key("1c64", "Vick sitting", |_| {});
         c.close_key("1c65", "Fisherman", |_| {});
-        c.key("r", |k| {
-            k.name = Some("Walkmap".to_string());
-            k.region.get_or_insert_default().width = Some(1000);
-        });
+        c.close_key("r", "Walkmap", |_| {});
         c.key("r4", |k| {
             k.name = Some("Walkmap (C4)".to_string());
-            k.region.get_or_insert_default().width = Some(1000);
+            k.region.get_or_insert_default();
         });
+    });
+    c.key("K1_Vesnice", |k| {
+        k.name = Some("Willow Creek: left".to_string());
+        let s = k.scene.get_or_insert_default();
+        s.width = Some(1000);
+        s.bg_reference.extend([
+            (0, 45, "gfx1.grp/1dovesnice.bmp".to_string()),
+        ]);
     });
 
     c.open_key("109c", "Willow Creek: pub exterior", |c| {
         c.close_key("100f", "BG", |_| {});
+    });
+    c.key("K1_Predhospodou", |k| {
+        k.name = Some("Willow Creek: pub exterior".to_string());
+        k.scene.get_or_insert_default().bg_reference.extend([
+            (0, 45, "gfx1.grp/1uhospody.bmp".to_string()),
+        ]);
     });
 
     c.open_key("109d", "Willow Creek: pub interior", |c| {
@@ -250,6 +253,14 @@ pub(super) fn apply_known_locations(c: &mut KnownContext) {
     ], &[
         (0, 45, "gfx1.grp/1hlavnijidelna.bmp"),
     ], None);
+
+    c.open_key("10a5", "Castle: Samuel's room", |_| {});
+    c.key("K1_Pokoj", |k| {
+        k.name = Some("Castle: Samuel's room".to_string());
+        k.scene.get_or_insert_default().bg_reference.extend([
+            (0, 45, "gfx1.grp/1pokoj_Sama.bmp".to_string()),
+        ]);
+    });
 
     c.open_key("10b4", "Castle: main hall (entry)", |c| {
         c.close_key("100f", "BG", |_| {});

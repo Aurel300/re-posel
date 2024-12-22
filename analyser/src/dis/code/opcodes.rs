@@ -252,12 +252,20 @@ opcodes! {
         out.decomp = Some(format!("{SDB}global{SDE}[{}]--", ctx.show_eval_str(&a)));
     }), // push(global[pop()]--) |
     GlbSet(0x2F, 0, 2, 1, {
-        ctx.xref_str(&a, AdbXrefKind::GlobalW);
+        if let DisValue::Const(c) = b {
+            ctx.xref_str(&a, AdbXrefKind::GlobalWConst(c));
+        } else {
+            ctx.xref_str(&a, AdbXrefKind::GlobalW);
+        }
         out.decomp = Some(format!("{SDB}global{SDE}[{}] = {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
         out.pushing[0] = b;
     }),
     GlbSetPop(0x30, 0, 2, 0, {
-        ctx.xref_str(&a, AdbXrefKind::GlobalW);
+        if let DisValue::Const(c) = b {
+            ctx.xref_str(&a, AdbXrefKind::GlobalWConst(c));
+        } else {
+            ctx.xref_str(&a, AdbXrefKind::GlobalW);
+        }
         out.decomp = Some(format!("{SDB}global{SDE}[{}] = {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
     }),
     GlbAdd(0x31, 0, 2, 1, {
@@ -480,7 +488,9 @@ opcodes! {
     Unk77(0x77, 0, 0, 0), // ? set a state flag to 1 |
     Say78(0x78, 0, 2, 0), // dialogue??? |
     Say79(0x79, 0, 3, 0), // dialogue??? |
-    Say7A(0x7A, 0, 3, 0), // dialogue??? ("tell sound") |
+    Say7A(0x7A, 0, 3, 0, {
+        out.decomp = Some(format!("say7A\n- a: {}\n- b: {}\n- c: {}", ctx.show_eval_str(&a), ctx.show_eval_str(&b), ctx.show_eval_str(&c)));
+    }), // dialogue??? ("tell sound") |
     Say7B(0x7B, 0, 2, 0), // set a global flag then dialogue??? |
     Say7C(0x7C, 0, 3, 0, {
         out.decomp = Some(format!("say\n- sound: {}\n- text: {}", ctx.show_eval_str(&a), ctx.show_eval_str(&b)));
@@ -506,8 +516,12 @@ opcodes! {
         out.decomp = Some(format!("{SDB}sample{SDE}.loop = true"));
     }), // reset two state vars |
     Unk89(0x89, 0, 1, 0), // ? set a state var to pop() |
-    Unk8A(0x8A, 0, 2, 0), // change screen patch spop(), spop() ? |
-    Unk8B(0x8B, 0, 2, 0), // change screen patch spop(), spop() ? |
+    Unk8A(0x8A, 0, 2, 0, {
+        out.decomp = Some(format!("unk8A(screenpatch? {}, {})", ctx.show_eval_str(&a), ctx.show_eval_str(&b)));
+    }), // change screen patch spop(), spop() ? |
+    Unk8B(0x8B, 0, 2, 0, {
+        out.decomp = Some(format!("unk8B(screenpatch? {}, {})", ctx.show_eval_str(&a), ctx.show_eval_str(&b)));
+    }), // change screen patch spop(), spop() ? |
     Unk8C(0x8C, 0, 2, 1, {
         ctx.xref_str(&a, AdbXrefKind::Code);
         if matches!(b, DisValue::Const(255)) {
@@ -526,8 +540,14 @@ opcodes! {
     }),
     Unk90(0x90, 0, 0, 1, { out.pushing[0] = DisValue::Dynamic("mouse.x".to_string()); }), // push(a state var?) |
     Unk91(0x91, 0, 0, 1, { out.pushing[0] = DisValue::Dynamic("mouse.y".to_string()); }), // push(a state var?) |
-    GetRegX(0x92, 0, 1, 1, { out.pushing[0] = unop("region.x", a); }),
-    GetRegY(0x93, 0, 1, 1, { out.pushing[0] = unop("region.y", a); }),
+    GetRegX(0x92, 0, 1, 1, {
+        ctx.xref_str(&a, AdbXrefKind::Region);
+        out.pushing[0] = unop("region.x", a);
+    }),
+    GetRegY(0x93, 0, 1, 1, {
+        ctx.xref_str(&a, AdbXrefKind::Region);
+        out.pushing[0] = unop("region.y", a);
+    }),
     GetCharPhase(0x94, 0, 1, 1, { out.pushing[0] = unop("char.phase", a); }),
     GetCharX(0x95, 0, 1, 1, { out.pushing[0] = unop("char.x", a); }),
     GetCharY(0x96, 0, 1, 1, { out.pushing[0] = unop("char.y", a); }),
@@ -623,6 +643,8 @@ opcodes! {
         syms.push(branch);
     }), // obj[0xC9] = ip; ip += imm16() |
     StartFilm(0xCB, 0, 2, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Text);
+        ctx.xref_str(&b, AdbXrefKind::Text);
         out.decomp = Some(format!("start film({}, {})", ctx.show_eval_str(&a), ctx.show_eval_str(&b)));
     }),
     UnkCC(0xCC, 0, 0, 0), // stop film |

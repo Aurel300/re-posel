@@ -7,7 +7,8 @@
     <%- self.rendered_hierarchy %>
 </nav><nav id="top">
     <%- self.rendered_breadcrumbs %> |
-    <label><input id="f-showdata" type="checkbox" checked> Show data inline</label>
+    <label><input id="f-showdata" type="checkbox" checked> Show data inline</label> |
+    <label><input id="f-hideasm" type="checkbox" checked> Collapse long assembly</label>
 </nav><main>
     <% if !self.xrefs.is_empty() { %>
         <div class="line title">Cross references</div>
@@ -29,7 +30,13 @@
         <% } %>
     <% } %>
     <% if let Some(pretty) = &self.pretty { %>
-        <div class="line title">Decompiled script</div>
+        <div class="line title">
+            <% if matches!(self.kind, crate::adb::AdbEntryKind::Code(..)) { %>
+                Decompiled script
+            <% } else { %>
+                Decompiled
+            <% } %>
+        </div>
         <div class="line decomp"><%- pretty %></div>
     <% } %>
     <% if !self.code.lines.is_empty() { %>
