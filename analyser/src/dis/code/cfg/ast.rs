@@ -188,9 +188,10 @@ pub(super) fn build(
                 output.push_str(&format!("{indent}<a href=\"#bb-{bid}\" id=\"be-{bid}\">}}</a>\n"));
             }
             AstToken::Chain(branches) => {
+                let mut bid = 0;
                 for (idx, (cline, cond, _, branch)) in branches.iter().enumerate() {
                     output.push_str(&cline_indent(*cline));
-                    let bid = *block_counter;
+                    bid = *block_counter;
                     *block_counter += 1;
                     if idx > 0 {
                         output.push_str(&format!("<a href=\"#bb-{}\" id=\"be-{}\">}}</a> <span class=\"hl-kw\">else</span> ", bid - 1, bid - 1));
@@ -202,7 +203,7 @@ pub(super) fn build(
                     }
                     build(code_start, branch, output, depth + 1, block_counter);
                 }
-                output.push_str(&format!("{indent}<a href=\"#bb-{}\" id=\"be-{}\">}}</a>\n", *block_counter - 1, *block_counter - 1));
+                output.push_str(&format!("{indent}<a href=\"#bb-{}\" id=\"be-{}\">}}</a>\n", bid, bid));
             }
             AstToken::Switch(test, cases) => {
                 let bid = *block_counter;

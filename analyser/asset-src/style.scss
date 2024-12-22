@@ -47,6 +47,9 @@ a:hover {
         &.nav-reg {
             color: #b6b;
         }
+        &.nav-glb {
+            color: #eb6;
+        }
         &.nav-dummy {
             color: #bbb;
         }
@@ -120,21 +123,14 @@ main {
             border-left: 2px solid #a00;
         }
     }
-    .line:has(.is-pretty) {
-        border-bottom: 1px dashed #ccc;
-        margin-bottom: 30px;
-        .hex {
-            width: 10px;
-        }
-        .asm {
-            width: 10px;
-        }
-        .dec {
-            width: (190px + 270px + 580px + 390px);
-        }
-        .com {
-            width: 10px;
-        }
+    .line.title {
+        border-top: 1px dashed #ccc;
+        font-size: 16px;
+        margin-top: 30px;
+    }
+    .line.decomp {
+        font-family: monospace;
+        white-space: pre-wrap;
     }
     .line:not(:has(.jump)) + .line:has(.jump) {
         border-top: 1px dashed #ccc;

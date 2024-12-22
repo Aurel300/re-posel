@@ -207,7 +207,9 @@ pub(super) fn apply_known_locations(c: &mut KnownContext) {
         c.close_key("1099", "Exit (dining room)", |_| {});
         c.close_key("10b1", "Exit (towards staircase)", |_| {});
         c.close_key("1111", "Exit (towards library top)", |_| {});
-        c.close_key("124b", "Marcus Gordon picture", |_| {});
+        c.close_key("124b", "Marcus Gordon picture", |c| {
+            c.close_key("132b", "Counter", |_| {});
+        });
         c.close_key("2027", "Exit (towards library bottom)", |_| {});
         c.close_key("2028", "Monolith", |_| {});
         c.key("r", |k| k.name = Some("Walkmap".to_string()));

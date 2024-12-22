@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{patches::Patcher, xor::{dexor, XOR_KEY}};
 
 pub struct AdbIndexEntry {
@@ -9,6 +11,7 @@ pub struct AdbIndexEntry {
 #[derive(Debug)]
 pub enum AdbEntryKind {
     Dummy,
+    Global,
     Code(Vec<u8>),
     String {
         raw: Vec<u8>,
@@ -27,12 +30,38 @@ pub struct AdbEntry {
     pub open_key: bool,
     pub kind: AdbEntryKind,
     pub region: Option<AdbEntryRegion>,
+    pub global: Option<AdbEntryGlobal>,
+    pub xrefs: Vec<AdbXref>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AdbXref {
+    pub other_key: String,
+    pub loc: Option<usize>,
+    pub kind: AdbXrefKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum AdbXrefKind {
+    Unknown,
+    DialogueText,
+    Scene,
+    GlobalR,
+    GlobalW,
+    Code,
+    Region,
+    Text,
 }
 
 #[derive(Default, Debug)]
 pub struct AdbEntryRegion {
     pub width: Option<usize>,
     pub bg_reference: Vec<(i32, i32, String)>,
+}
+
+#[derive(Debug)]
+pub struct AdbEntryGlobal {
+    values: HashMap<u32, String>,
 }
 
 impl AdbEntry {
@@ -42,6 +71,8 @@ impl AdbEntry {
             open_key: true,
             kind,
             region: None,
+            global: None,
+            xrefs: Vec::new(),
         }
     }
 
@@ -52,6 +83,7 @@ impl AdbEntry {
             AdbEntryKind::Raw(_) if self.region.is_some() || key.ends_with(".rp") || key.ends_with(".r") => "reg",
             AdbEntryKind::Raw(_) => "raw",
             AdbEntryKind::Dummy => "dummy",
+            AdbEntryKind::Global => "glb",
         }
     }
 
@@ -66,7 +98,8 @@ impl AdbEntry {
 
     pub fn size(&self) -> usize {
         match &self.kind {
-            AdbEntryKind::Dummy => 0,
+            AdbEntryKind::Dummy
+            | AdbEntryKind::Global => 0,
             AdbEntryKind::Code(raw)
             | AdbEntryKind::String { raw, .. }
             | AdbEntryKind::Raw(raw) => raw.len(),

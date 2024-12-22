@@ -1,4 +1,4 @@
-use crate::patches::{Patch, PatchChange};
+use crate::{adb::AdbXref, patches::{Patch, PatchChange}};
 
 pub struct DisLine {
     pub span: std::ops::Range<usize>,
@@ -13,15 +13,19 @@ pub struct DisCode<'a> {
     pub lines: Vec<DisLine>,
     pub code: &'a [u8],
     offset: usize,
+    first_pass: bool,
+    pub xrefs: Vec<AdbXref>,
 }
 
 impl<'a> DisCode<'a> {
-    pub fn new(code: &'a [u8]) -> Self {
+    pub fn new(code: &'a [u8], first_pass: bool) -> Self {
         Self {
             error: false,
             lines: Vec::new(),
             code,
             offset: 0,
+            first_pass,
+            xrefs: Vec::new(),
         }
     }
 
@@ -33,6 +37,9 @@ impl<'a> DisCode<'a> {
         decomp: Option<String>,
         comments: Option<String>,
      ) {
+        if self.first_pass {
+            return;
+        }
         start += self.offset;
         end += self.offset;
         assert!(start <= end && end <= self.code.len());
@@ -45,7 +52,14 @@ impl<'a> DisCode<'a> {
         });
     }
 
+    pub fn finalise_xrefs(self) -> Vec<AdbXref> {
+        self.xrefs
+    }
+
     pub fn finalise(&mut self) {
+        if self.first_pass {
+            return;
+        }
         self.lines.sort_by_key(|e| (e.span.start, e.span.end));
         let mut last_end = 0;
         let mut unknown = Vec::new();
@@ -102,24 +116,26 @@ impl<'a> DisCode<'a> {
         }
 
         self.finalise();
-        for (patch, change) in patches {
-            let range = change.range();
-            /* match change {
-                PatchChange::DataEntry { range, .. } => range,
-            };*/
-            // TODO: be more efficient
-            // TODO: support multiple patches in same line
-            for line in &mut self.lines {
-                let marked = line.span.clone().map(|pos| if range.contains(&pos) { Some(patch.description) } else { None }).collect::<Vec<_>>();
-                line.hex = marked_hexdump(&self.code[line.span.clone()], &marked[..]);
-                /*
-                for pos in line.span {
-                    if range.contains(&pos) {
+        if !self.first_pass {
+            for (patch, change) in patches {
+                let range = change.range();
+                /* match change {
+                    PatchChange::DataEntry { range, .. } => range,
+                };*/
+                // TODO: be more efficient
+                // TODO: support multiple patches in same line
+                for line in &mut self.lines {
+                    let marked = line.span.clone().map(|pos| if range.contains(&pos) { Some(patch.description) } else { None }).collect::<Vec<_>>();
+                    line.hex = marked_hexdump(&self.code[line.span.clone()], &marked[..]);
+                    /*
+                    for pos in line.span {
+                        if range.contains(&pos) {
 
+                        }
                     }
+                    */
+                    //let starts_here = range.start >= line.span.start && 
                 }
-                */
-                //let starts_here = range.start >= line.span.start && 
             }
         }
         DisCode {
@@ -127,6 +143,8 @@ impl<'a> DisCode<'a> {
             lines: self.lines,
             code: &[],
             offset: self.offset,
+            first_pass: self.first_pass,
+            xrefs: self.xrefs,
         }
     }
 }

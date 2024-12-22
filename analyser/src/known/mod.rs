@@ -161,6 +161,8 @@ pub fn apply_known(root: &mut NavTree, entries: &mut HashMap<String, AdbEntry>) 
     c.open_key("1069", "Intro", |_c| {
     });
 
+    c.close_key("1079", "Chapter", |_| {});
+
     c.open_key("1094", "6zoom_oltar", |c| {
         c.close_key("100f", "BG", |_| {});
     });

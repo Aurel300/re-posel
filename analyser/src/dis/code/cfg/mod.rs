@@ -59,9 +59,9 @@ struct CfgAnalysis {
     code_start: usize,
     blocks: HashMap<BlockId, Block>,
     output: AstStack,
-    predoms: HashMap<BlockId, HashSet<BlockId>>,
+    //predoms: HashMap<BlockId, HashSet<BlockId>>,
     postdoms: HashMap<BlockId, HashSet<BlockId>>,
-    reach: HashMap<BlockId, HashSet<BlockId>>,
+    //reach: HashMap<BlockId, HashSet<BlockId>>,
     path: Vec<BlockId>,
     path_loops: HashSet<BlockId>,
 }
@@ -75,9 +75,9 @@ impl CfgAnalysis {
                 current: Vec::new(),
                 parent: None,
             },
-            predoms: HashMap::new(),
+            //predoms: HashMap::new(),
             postdoms: HashMap::new(),
-            reach: HashMap::new(),
+            //reach: HashMap::new(),
             path: Vec::new(),
             path_loops: HashSet::new(),
         }
@@ -177,10 +177,11 @@ impl CfgAnalysis {
         }
         let mut keys = self.blocks.keys().copied().collect::<HashSet<BlockId>>();
         keys.insert(BlockId::End);
-        compute(&keys, &mut self.predoms, 0.into(), BlockId::End, |id| self.blocks.get(id).unwrap().pred.clone());
+        //compute(&keys, &mut self.predoms, 0.into(), BlockId::End, |id| self.blocks.get(id).unwrap().pred.clone());
         compute(&keys, &mut self.postdoms, BlockId::End, 0.into(), |id| self.blocks.get(id).unwrap().succ.iter()
             //.filter(|e| !e.back_edge)
             .map(|e| e.to).collect());
+        /*
         for key in &keys {
             let mut reachable = HashSet::new();
             let mut queue = VecDeque::new();
@@ -197,6 +198,7 @@ impl CfgAnalysis {
             }
             self.reach.insert(*key, reachable);
         }
+        */
     }
 
     fn find_join_point(

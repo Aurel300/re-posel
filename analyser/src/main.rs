@@ -18,12 +18,14 @@ mod patches;
 mod templates;
 mod xor;
 
-use adb::{AdbEntry, AdbEntryKind};
+use adb::{AdbEntry, AdbEntryKind, AdbXref};
 
 #[derive(Clone, Copy)]
 pub struct Resources<'a> {
     entries: &'a HashMap<String, AdbEntry>,
     data: &'a HashMap<String, (String, String, String)>,
+    do_analyse: bool,
+    first_pass: bool,
 }
 
 
@@ -72,6 +74,15 @@ enum CliCommand {
         /// value is a regular expression.
         #[arg(long)]
         filter: Option<String>,
+
+        /// When provided, bytecode will be decompiled into readable script.
+        /// This may be slow on larger objects.
+        #[arg(long)]
+        analyse: bool,
+
+        /// When provided, cross references will be identified.
+        #[arg(long)]
+        crossref: bool,
 
         /// Output path: a directory will be created at this path, if one does
         /// not exist, and the selected objects will be decompiled into it.
@@ -133,7 +144,7 @@ fn main() {
     let db = std::fs::read(&db_path).unwrap();
 
     match command {
-        CliCommand::Decompile { group, filter, output, .. } => {
+        CliCommand::Decompile { group, filter, output, analyse: do_analyse, crossref: do_xref, .. } => {
             // Load objects.
             let mut entries = adb::extract(db).collect::<HashMap<_, _>>();
             println!("{} objects loaded from .adb file", entries.len());
@@ -151,6 +162,55 @@ fn main() {
             }
             println!("{} assets in .grp file(s)", data.len());
 
+            if do_xref {
+                // First pass: find cross references.
+                let res = Resources {
+                    entries: &entries,
+                    data: &data,
+                    do_analyse: false,
+                    first_pass: true,
+                };
+                let mut xrefs = Vec::new();
+                for (key, entry) in &entries {
+                    xrefs.extend(match &entry.kind {
+                        AdbEntryKind::Code(c) => {
+                            patcher.with_data(key, c, |c, _patches| {
+                                dis::analyse_code(c, res).unwrap().1.finalise_xrefs()
+                            })
+                        }
+                        _ => continue,
+                        /*
+                        AdbEntryKind::String { raw, decoded, .. } => {
+                            dis::analyse_string(raw, decoded, res).unwrap();
+                        }
+                        AdbEntryKind::Raw(c) => {
+                            if entry.region.is_some() || key.ends_with(".r") || key.ends_with(".rp") {
+                                dis::analyse_region(entry, res).unwrap();
+                            } else {
+                                dis::analyse_raw(c, res).unwrap();
+                            }
+                        }
+                        AdbEntryKind::Dummy
+                        | AdbEntryKind::Global => {
+                            dis::analyse_dummy(res).unwrap();
+                        }
+                        */
+                    }.into_iter().map(|xref| (key.to_string(), xref)));
+                }
+
+                // Process cross references.
+                for (from, xref) in xrefs {
+                    entries.entry(xref.other_key)
+                        .or_insert_with(|| AdbEntry::new(AdbEntryKind::Global))
+                        .xrefs
+                        .push(AdbXref {
+                            other_key: from.to_string(),
+                            loc: xref.loc,
+                            kind: xref.kind,
+                        });
+                }
+            }
+
             // Create hierarchy.
             let mut root = NavTree {
                 key: "".to_string(),
@@ -165,19 +225,22 @@ fn main() {
             // Apply known labels to objects.
             known::apply_known(&mut root, &mut entries);
 
-            // Output decompiled objects.
+            // Second pass: output decompiled objects.
             let mut output = output.clone();
             std::fs::create_dir_all(&output).unwrap();
 
             let res = Resources {
                 entries: &entries,
                 data: &data,
+                do_analyse,
+                first_pass: false,
             };
             let mut count_string = 0;
             let mut count_raw = 0;
             let mut count_region = 0;
             let mut count_code = 0;
             let mut count_code_error = 0;
+            let mut count_globals = 0;
             let mut count_dummy = 0;
             let entry_filter = filter.map(|pat| regex::Regex::new(&pat).unwrap());
             for (key, entry) in &entries {
@@ -202,6 +265,7 @@ fn main() {
                     })
                     .collect();
                 println!("  {key} ({}, {} bytes)", entry.describe(key), entry.size());
+                let mut pretty = None;
                 let code = match &entry.kind {
                     AdbEntryKind::String { raw, decoded, .. } => {
                         count_string += 1;
@@ -219,13 +283,18 @@ fn main() {
                     AdbEntryKind::Code(c) => {
                         count_code += 1;
                         patcher.with_data(key, c, |c, patches| {
-                            let code = dis::analyse_code(c, res).unwrap();
+                            let (p, code) = dis::analyse_code(c, res).unwrap();
+                            pretty = p;
                             if code.error {
                                 println!("    code error!");
                                 count_code_error += 1;
                             }
                             code.finalise_with_patches(patches)
                         })
+                    }
+                    AdbEntryKind::Global => {
+                        count_globals += 1;
+                        dis::analyse_dummy(res).unwrap()
                     }
                     AdbEntryKind::Dummy => {
                         count_dummy += 1;
@@ -235,15 +304,20 @@ fn main() {
                 let hierarchy = root.get(key_parts[0]).flatten();
                 let rendered_hierarchy = hierarchy.render(key, &entries);
                 output.push(format!("{key}.html"));
+                let mut sorted_xrefs = entry.xrefs.clone();
+                sorted_xrefs.sort_by_cached_key(|xref| (xref.other_key.clone(), xref.loc));
                 std::fs::write(&output, templates::Bytecode {
                     title: key.to_string(),
                     rendered_hierarchy: &rendered_hierarchy,
                     rendered_breadcrumbs,
                     code,
+                    pretty,
+                    xrefs: sorted_xrefs,
                 }.render().unwrap()).unwrap();
                 output.pop();
             }
             println!("code:    {count_code}, errored: {count_code_error}");
+            println!("globals: {count_globals}");
             println!("dummy:   {count_dummy}");
             println!("raw:     {count_raw}");
             println!("region:  {count_region}");

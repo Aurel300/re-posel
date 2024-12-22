@@ -1,5 +1,7 @@
 use sailfish::Template;
 
+use crate::adb::AdbXref;
+
 pub mod nav;
 
 #[derive(Template)]
@@ -9,4 +11,6 @@ pub struct Bytecode<'a> {
     pub rendered_breadcrumbs: String,
     pub rendered_hierarchy: &'a str,
     pub code: crate::dis::DisCode<'a>,
+    pub pretty: Option<String>,
+    pub xrefs: Vec<AdbXref>,
 }

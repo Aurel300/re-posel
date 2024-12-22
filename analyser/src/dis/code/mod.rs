@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-use crate::Resources;
+use crate::{adb::{AdbXref, AdbXrefKind}, Resources};
 
 use super::{DisCode, DisError};
 
@@ -44,6 +44,11 @@ impl DisOpData {
     fn as_u16(&self) -> u16 {
         assert_eq!(self.1, 2);
         (self.0 & 0xFFFF) as u16
+    }
+
+    fn as_u32(&self) -> u32 {
+        assert_eq!(self.1, 4);
+        self.0
     }
 
     fn stk_u8(&self) -> DisValue {
@@ -119,7 +124,7 @@ impl DisJump {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 enum DisValue {
     Const(u32),
     #[allow(dead_code)]
@@ -128,7 +133,7 @@ enum DisValue {
     FifoPos(usize),
     Unop(&'static str, Box<DisValue>),
     Binop(&'static str, Box<DisValue>, Box<DisValue>),
-    Unknown,
+    #[default] Unknown,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -139,6 +144,7 @@ struct DisStack {
 #[derive(Clone)]
 struct DisSym<'a> {
     code_start: usize,
+    code: &'a [u8],
     strings: &'a [String],
     res: Resources<'a>,
     jump: Option<DisJump>,
@@ -146,6 +152,7 @@ struct DisSym<'a> {
     op_stack: DisStack,
     fifo: VecDeque<Result<String, String>>,
     exit: bool,
+    xrefs: Vec<AdbXref>,
 }
 
 impl<'a> DisSym<'a> {
@@ -165,6 +172,16 @@ impl<'a> DisSym<'a> {
             DisValue::Unop(op, val) => format!("{op}({})", self.val_stack(val)),
             DisValue::FifoPos(idx) => format!("fifo{idx}({})", self.show_res_str(self.fifo[*idx].clone())),
             _ => format!("{value:?}"),
+        }
+    }
+
+    fn xref_str(&mut self, value: &DisValue, kind: AdbXrefKind) {
+        if let Ok(other_key) = self.eval_str(value) {
+            self.xrefs.push(AdbXref {
+                other_key,
+                loc: None,
+                kind,
+            });
         }
     }
 
@@ -307,6 +324,7 @@ pub fn analyse(
     let mut queue = VecDeque::new();
     queue.push_back(DisSym {
         code_start,
+        code,
         strings,
         res,
         jump: None,
@@ -314,6 +332,7 @@ pub fn analyse(
         op_stack: Default::default(),
         fifo: Default::default(),
         exit: false,
+        xrefs: Vec::new(),
     });
     enum ByteMark {
         Op { stack_len: usize },
@@ -371,6 +390,11 @@ pub fn analyse(
             decompiler.add_decomp(head_pos, decomp.clone());
         }
         for s in &mut next_sym {
+            output.xrefs.extend(std::mem::take(&mut s.xrefs).into_iter()
+                .map(|xref| AdbXref {
+                    loc: Some(head_pos + code_start),
+                    ..xref
+                }));
             if let Some(jump) = s.jump.as_ref() {
                 decompiler.add_jump(head_pos, s.pos, jump.clone());
                 output.line(
@@ -396,7 +420,11 @@ pub fn analyse(
         queue.extend(next_sym.into_iter().filter(|s| !s.exit));
     }
     if !output.error {
-        decompiler.analyse()
+        if res.do_analyse {
+            decompiler.analyse()
+        } else {
+            Ok("".to_string())
+        }
     } else {
         Err(DisError::MalformedCode("".to_string()))
     }

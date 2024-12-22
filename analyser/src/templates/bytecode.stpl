@@ -9,20 +9,46 @@
     <%- self.rendered_breadcrumbs %> |
     <label><input id="f-showdata" type="checkbox" checked> Show data inline</label>
 </nav><main>
-    <div class="line header">
-        <div class="addr">offset</div>
-        <div class="hex">hexdump</div>
-        <div class="asm">assembly</div>
-        <div class="dec">decompiled</div>
-        <div class="com">comments</div>
-    </div>
-    <% for line in &self.code.lines { %>
-        <div class="line" id="addr<%- format!("{:04x}", line.span.start) %>">
-            <div class="addr"><%- format!("{:04x}", line.span.start) %></div>
-            <div class="hex"><%- line.hex %></div>
-            <div class="asm<% if line.asm.as_ref().map(|s| s.as_str().starts_with("Unk")).unwrap_or_default() { %> unk<% } %>"><%- line.asm.as_ref().map(|s| s.as_str()).unwrap_or("") %></div>
-            <div class="dec"><%- line.decomp.as_ref().map(|s| s.as_str()).unwrap_or("") %></div>
-            <div class="com"><%- line.comments.as_ref().map(|s| s.as_str()).unwrap_or("") %></div>
+    <% if !self.xrefs.is_empty() { %>
+        <div class="line title">Cross references</div>
+        <div class="line header">
+            <div class="hex">object</div>
+            <div class="addr">offset</div>
+            <div class="asm">kind</div>
+            <div class="dec"></div>
+            <div class="com"></div>
         </div>
+        <% for xref in &self.xrefs { %>
+            <div class="line">
+                <div class="hex"><a href="<%- xref.other_key %>.html"><%- xref.other_key %></a></div>
+                <div class="addr"><% if let Some(addr) = &xref.loc { %><a href="<%- xref.other_key %>.html#addr<%- format!("{:04x}", addr) %>"><%- format!("{:04x}", addr) %></a><% } %></div>
+                <div class="asm"><%- format!("{:?}", xref.kind) %></div>
+                <div class="dec"></div>
+                <div class="com"></div>
+            </div>
+        <% } %>
+    <% } %>
+    <% if let Some(pretty) = &self.pretty { %>
+        <div class="line title">Decompiled script</div>
+        <div class="line decomp"><%- pretty %></div>
+    <% } %>
+    <% if !self.code.lines.is_empty() { %>
+        <div class="line title">Bytecode</div>
+        <div class="line header">
+            <div class="addr">offset</div>
+            <div class="hex">hexdump</div>
+            <div class="asm">assembly</div>
+            <div class="dec">decompiled</div>
+            <div class="com">comments</div>
+        </div>
+        <% for line in &self.code.lines { %>
+            <div class="line" id="addr<%- format!("{:04x}", line.span.start) %>">
+                <div class="addr"><%- format!("{:04x}", line.span.start) %></div>
+                <div class="hex"><%- line.hex %></div>
+                <div class="asm<% if line.asm.as_ref().map(|s| s.as_str().starts_with("Unk")).unwrap_or_default() { %> unk<% } %>"><%- line.asm.as_ref().map(|s| s.as_str()).unwrap_or("") %></div>
+                <div class="dec"><%- line.decomp.as_ref().map(|s| s.as_str()).unwrap_or("") %></div>
+                <div class="com"><%- line.comments.as_ref().map(|s| s.as_str()).unwrap_or("") %></div>
+            </div>
+        <% } %>
     <% } %>
 </main></body></html>

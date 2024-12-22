@@ -52,6 +52,7 @@ fn shortsan(s: &str) -> String {
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace("\n", "  ")
+            .replace("\r", "  ")
             + "..."
     } else {
         s
@@ -59,6 +60,7 @@ fn shortsan(s: &str) -> String {
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace("\n", "  ")
+            .replace("\r", "  ")
     }
 }
 
@@ -76,21 +78,23 @@ pub fn show_string(s: &str, res: Resources) -> String {
     };
     match &entry.kind {
         AdbEntryKind::String { decoded, .. } if res.data.contains_key(&decoded.to_ascii_lowercase()) =>
-            format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> {rev_name}<span class=\"hl-str\">\"{}\"</span></a> -> {})", shortsan(decoded), show_data(decoded, res)),
+            format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> S{rev_name}<span class=\"hl-str\">\"{}\"</span></a> -> {})", shortsan(decoded), show_data(decoded, res)),
         AdbEntryKind::String { decoded, .. } =>
-            format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> {rev_name}<span class=\"hl-str\">\"{}\"</span></a>)", shortsan(decoded)),
+            format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> S{rev_name}<span class=\"hl-str\">\"{}\"</span></a>)", shortsan(decoded)),
         AdbEntryKind::Raw(..) =>
-            format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> raw{rev_name}</a>)"),
+            format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> R{rev_name}</a>)"),
         AdbEntryKind::Code(_) =>
-            format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> code{rev_name}</a>)"),
+            format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> C{rev_name}</a>)"),
         AdbEntryKind::Dummy =>
-            format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> dummy{rev_name}</a>)"),
+            format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> D{rev_name}</a>)"),
+        AdbEntryKind::Global =>
+            format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> G{rev_name}</a>)"),
     }
 }
 
-pub fn analyse_region<'a>(entry: &'a AdbEntry, _res: Resources<'a>) -> Result<DisCode<'a>, DisError> {
+pub fn analyse_region<'a>(entry: &'a AdbEntry, res: Resources<'a>) -> Result<DisCode<'a>, DisError> {
     let code = entry.raw();
-    let mut output = DisCode::new(code);
+    let mut output = DisCode::new(code, res.first_pass);
     if code.len() < 0x26 {
         return Err(DisError::TooShort);
     }
@@ -168,7 +172,7 @@ pub fn analyse_region<'a>(entry: &'a AdbEntry, _res: Resources<'a>) -> Result<Di
 }
 
 pub fn analyse_raw<'a>(code: &'a [u8], res: Resources<'a>) -> Result<DisCode<'a>, DisError> {
-    let mut output = DisCode::new(code);
+    let mut output = DisCode::new(code, res.first_pass);
     let s = encoding_rs::WINDOWS_1250.decode_without_bom_handling_and_without_replacement(code).unwrap();
     output.line(0, code.len(), None, Some(show_string(&s, res)), None);
     output.finalise();
@@ -176,14 +180,14 @@ pub fn analyse_raw<'a>(code: &'a [u8], res: Resources<'a>) -> Result<DisCode<'a>
 }
 
 pub fn analyse_string<'a>(raw: &'a [u8], decoded: &str, res: Resources<'a>) -> Result<DisCode<'a>, DisError> {
-    let mut output = DisCode::new(raw);
+    let mut output = DisCode::new(raw, res.first_pass);
     output.line(0, raw.len(), None, Some(show_string(decoded, res)), None);
     output.finalise();
     Ok(output)
 }
 
-pub fn analyse_code<'a>(code: &'a [u8], res: Resources<'a>) -> Result<DisCode<'a>, DisError> {
-    let mut output = DisCode::new(code);
+pub fn analyse_code<'a>(code: &'a [u8], res: Resources<'a>) -> Result<(Option<String>, DisCode<'a>), DisError> {
+    let mut output = DisCode::new(code, res.first_pass);
     if code.len() < 0x18 {
         return Err(DisError::TooShort);
     }
@@ -221,7 +225,7 @@ pub fn analyse_code<'a>(code: &'a [u8], res: Resources<'a>) -> Result<DisCode<'a
             if pos == 0x18 {
                 return Err(DisError::MalformedString);
             }
-            if i == string_count - 1 && code[pos + 1].is_ascii_control() {
+            if i == string_count - 1 && !(0x21 <= code[pos + 1] && code[pos + 1] < 0x7F) {
                 pos += 1;
             }
             let s = encoding_rs::WINDOWS_1250.decode_without_bom_handling_and_without_replacement(&code[pos + 1..string_end]).unwrap();
@@ -239,7 +243,9 @@ pub fn analyse_code<'a>(code: &'a [u8], res: Resources<'a>) -> Result<DisCode<'a
         output.line(code_start, code_start, None, None, Some("<span class=\"jump\"></span>code start".to_string()));
         match output.with_offset(code_start, |output| code::analyse(&code[code_start..code_end], code_start, &strings[..], res, output)) {
             Ok(pretty) => {
-                output.line(0, 0, None, Some(pretty + "<span class=\"is-pretty\"></span>"), None);
+                if !pretty.is_empty() {
+                    return Ok((Some(pretty), output));
+                }
             },
             Err(err) => {
                 output.error = true;
@@ -254,11 +260,11 @@ pub fn analyse_code<'a>(code: &'a [u8], res: Resources<'a>) -> Result<DisCode<'a
         }
     };
 
-    Ok(output)
+    Ok((None, output))
 }
 
-pub fn analyse_dummy(_res: Resources<'_>) -> Result<DisCode<'_>, DisError> {
-    let mut output = DisCode::new(&[]);
+pub fn analyse_dummy(res: Resources<'_>) -> Result<DisCode<'_>, DisError> {
+    let mut output = DisCode::new(&[], res.first_pass);
     output.finalise();
     Ok(output)
 }
