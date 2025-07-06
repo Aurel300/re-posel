@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use crate::{adb::AdbEntry, templates::nav::NavTree};
+use walkthrough::WtStep;
+
+use crate::{adb::AdbEntry, dis::DisCode, templates::nav::NavTree, Resources};
 #[allow(unused_imports)]
 use crate::AdbEntryKind;
 
@@ -9,6 +11,7 @@ mod dialogues;
 mod inventory;
 mod locations;
 mod puzzles;
+pub mod walkthrough;
 mod zooms;
 
 struct KnownContext<'a> {
@@ -87,6 +90,12 @@ impl<'a> KnownContext<'a> {
     }
 }
 
+pub fn create_walkthrough<'a>(res: Resources<'a>) -> Vec<(usize, Vec<WtStep>)> {
+    vec![
+        (1, walkthrough::chapter1(res)),
+    ]
+}
+
 pub fn apply_known(root: &mut NavTree, entries: &mut HashMap<String, AdbEntry>) {
     let mut c = KnownContext::new(root, entries);
 
@@ -143,6 +152,7 @@ pub fn apply_known(root: &mut NavTree, entries: &mut HashMap<String, AdbEntry>) 
         c.close_key("1055", "Loading screen", |_| {});
         c.close_key("1058", "Chapter select", |_| {});
 
+        /*
         c.region_reference(&[
             &["1016", "rp"],
             &["100e", "1020", "rp"],
@@ -156,6 +166,16 @@ pub fn apply_known(root: &mut NavTree, entries: &mut HashMap<String, AdbEntry>) 
             (276, 159, "gfx1.grp/cerny_pruh.bmp"),
             (178, 420, "gfx1.grp/minulost.bmp"),
         ], None);
+        */
+    });
+    c.key("main_MenuMenuscreen", |k| {
+        k.name = Some("Main menu".to_string());
+        k.scene.get_or_insert_default().bg_reference.extend([
+            (  0,   0, "gfx1.grp/menu.bmp".to_string()),
+            (252,  61, "gfx1.grp/poselsmrti.bmp".to_string()),
+            (276, 159, "gfx1.grp/cerny_pruh.bmp".to_string()),
+            (178, 420, "gfx1.grp/minulost.bmp".to_string()),
+        ]);
     });
 
     c.open_key("1069", "Chapter 1 intro", |_| {});

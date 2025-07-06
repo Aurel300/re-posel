@@ -63,7 +63,7 @@ pub struct AdbEntryRegion {
 
 #[derive(Debug)]
 pub struct AdbEntryGlobal {
-    values: HashMap<u32, String>,
+    pub values: HashMap<u32, String>,
 }
 
 #[derive(Default, Debug)]

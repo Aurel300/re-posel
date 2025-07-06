@@ -42,14 +42,17 @@ impl<'a> DisCode<'a> {
         }
         start += self.offset;
         end += self.offset;
-        assert!(start <= end && end <= self.code.len());
-        self.lines.push(DisLine {
-            span: start..end,
-            hex: super::hexdump(&self.code[start..end]),
-            asm,
-            decomp,
-            comments,
-        });
+        if start <= end && end <= self.code.len() {
+            self.lines.push(DisLine {
+                span: start..end,
+                hex: super::hexdump(&self.code[start..end]),
+                asm,
+                decomp,
+                comments,
+            });
+        } else {
+            println!("warning: {start}-{end} not in code range");
+        }
     }
 
     pub fn finalise_xrefs(self) -> Vec<AdbXref> {

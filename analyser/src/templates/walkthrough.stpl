@@ -1,0 +1,22 @@
+<html lang="en"><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bytecode: <%= self.title %></title>
+    <link rel="stylesheet" href="style.css">
+</head><body><nav id="left">
+</nav><nav id="top">
+</nav><main>
+    <div class="line title">Walkthrough</div>
+    <div class="line header">
+        <div class="asm">idx</div>
+        <div class="dec">step</div>
+        <div class="com">comments</div>
+    </div>
+    <% let mut idx = 0; for wt in &self.steps { %>
+        <div class="line">
+            <div class="asm"><% if wt.user { idx += 1; %><%= idx %>.<% } %></div>
+            <div class="dec"><%- wt.step %></div>
+            <div class="com"><% if let Some(comment) = &wt.comment { %><%- comment %><% } %></div>
+        </div>
+    <% } %>
+</main></body></html>

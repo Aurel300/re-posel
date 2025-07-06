@@ -15,3 +15,10 @@ pub struct Bytecode<'a> {
     pub pretty: Option<String>,
     pub xrefs: Vec<AdbXref>,
 }
+
+#[derive(Template)]
+#[template(path = "../src/templates/walkthrough.stpl")]
+pub struct Walkthrough {
+    pub title: String,
+    pub steps: Vec<crate::known::walkthrough::WtStep>,
+}

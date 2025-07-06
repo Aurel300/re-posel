@@ -1,3 +1,5 @@
+use crate::adb::AdbEntryGlobal;
+
 use super::KnownContext;
 
 pub(super) fn apply_known_locations(c: &mut KnownContext) {
@@ -254,7 +256,16 @@ pub(super) fn apply_known_locations(c: &mut KnownContext) {
         (0, 45, "gfx1.grp/1hlavnijidelna.bmp"),
     ], None);
 
-    c.open_key("10a5", "Castle: Samuel's room", |_| {});
+    c.open_key("10a5", "Castle: Samuel's room", |c| {
+        c.key("1095", |k| {
+            k.name = Some("Case".to_string());
+            k.global = Some(AdbEntryGlobal {
+                values: [
+                    (3, "fainted, C1 end".to_string()),
+                ].into(),
+            });
+        });
+    });
     c.key("K1_Pokoj", |k| {
         k.name = Some("Castle: Samuel's room".to_string());
         k.scene.get_or_insert_default().bg_reference.extend([
@@ -316,6 +327,15 @@ pub(super) fn apply_known_locations(c: &mut KnownContext) {
         c.close_key("1d91", "Corner", |_| {});
         c.key("r", |k| k.name = Some("Walkmap".to_string()));
 
+        c.key("1095", |k| {
+            k.name = Some("Case".to_string());
+            k.global = Some(AdbEntryGlobal {
+                values: [
+                    (2, "done exploring William's study".to_string()),
+                ].into(),
+            });
+        });
+
         c.region_reference(&[
             &["1002", "rp"],
             &["1099", "1dba"],
@@ -345,6 +365,24 @@ pub(super) fn apply_known_locations(c: &mut KnownContext) {
 
     c.open_key("10c9", "Castle: William's tower", |c| {
         c.close_key("100f", "BG", |_| {});
+
+        c.open_key("10af", "Door", |c| {
+            c.key("11d7", |k| {
+                k.name = Some("Exit lock".to_string());
+                k.global = Some(AdbEntryGlobal {
+                    values: [
+                        (0, "locked".to_string()),
+                        (1, "unlocked".to_string()),
+                    ].into(),
+                });
+            });
+        });
+    });
+    c.key("K1_Vez", |k| {
+        k.name = Some("Castle: William's tower".to_string());
+        k.scene.get_or_insert_default().bg_reference.extend([
+            (0, 45, "gfx1.grp/1vez.bmp".to_string()),
+        ]);
     });
 
     c.open_key("10eb", "Castle: cellar", |c| {

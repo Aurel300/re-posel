@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::adb::{AdbEntry, AdbEntryKind};
 
-
 pub struct NavTree {
     pub key: String,
     pub kind: &'static str,

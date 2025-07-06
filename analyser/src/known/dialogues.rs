@@ -1,3 +1,5 @@
+use crate::adb::AdbEntryGlobal;
+
 use super::KnownContext;
 
 pub(super) fn apply_known_dialogues(c: &mut KnownContext) {
@@ -43,8 +45,17 @@ pub(super) fn apply_known_dialogues(c: &mut KnownContext) {
     c.open_key("123b", "Dialogues: Father Frederick", |_c| {});
     c.open_key("123c", "Dialogues: nurse", |_c| {});
     c.open_key("123d", "Dialogues: Ralph", |_c| {});
-    c.open_key("123f", "Dialogues: monologues", |_c| {
-        // 1095 = monologue selection
-        //   16 = intro
+
+    c.open_key("123f", "Dialogues: monologues", |c| {
+        c.key("1095", |k| {
+            k.name = Some("Case".to_string());
+            k.global = Some(AdbEntryGlobal {
+                values: [
+                    (1, "fainted, C1 end".to_string()),
+                    (14, "C2 start".to_string()),
+                    (16, "game intro".to_string()),
+                ].into(),
+            });
+        });
     });
 }

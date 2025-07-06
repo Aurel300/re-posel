@@ -12,6 +12,7 @@ use block::*;
 
 pub(crate) struct Decompiler<'a> {
     code_start: usize,
+    opcode_offset: u8,
     code: &'a [u8],
     block_starts: HashSet<usize>,
     pos_decomp: HashMap<usize, String>,
@@ -19,9 +20,10 @@ pub(crate) struct Decompiler<'a> {
 }
 
 impl<'a> Decompiler<'a> {
-    pub(crate) fn new(code_start: usize, code: &'a [u8]) -> Self {
+    pub(crate) fn new(code_start: usize, opcode_offset: u8, code: &'a [u8]) -> Self {
         Self {
             code_start,
+            opcode_offset,
             code,
             block_starts: [0].into(),
             pos_decomp: HashMap::new(),
@@ -92,7 +94,7 @@ impl CfgAnalysis {
                     block.term = block.end;
                     break;
                 }
-                let (pos, ins) = DisIns::analyse_one(info.code, block.end).unwrap();
+                let (pos, ins) = DisIns::analyse_one(info.code, info.opcode_offset, block.end).unwrap();
                 if matches!(ins.op, DisOp::Exit) {
                     block.lines.push(AstToken::Exit(Some(block.end)));
                     block.term = block.end;

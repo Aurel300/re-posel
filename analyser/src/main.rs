@@ -11,14 +11,18 @@ use templates::nav::NavTree;
 use std::{collections::{HashMap, HashSet}, path::PathBuf};
 
 mod adb;
-mod dis;
+pub mod dis;
 mod grp;
-mod known;
+pub mod known;
 mod patches;
 mod templates;
 mod xor;
 
 use adb::{AdbEntry, AdbEntryKind, AdbXref, AdbXrefKind};
+
+pub const SDB: &str = "<span class=\"hl-dyn\">";
+pub const SCB: &str = "<span class=\"hl-com\">";
+pub const SE: &str = "</span>";
 
 #[derive(Clone, Copy)]
 pub struct Resources<'a> {
@@ -84,6 +88,15 @@ enum CliCommand {
         #[arg(long)]
         crossref: bool,
 
+        /// When provided, known objects will be labelled. (Only works for the
+        /// English version `1.0en`.)
+        #[arg(long)]
+        apply_known: bool,
+
+        /// When provided, files will not actually be created.
+        #[arg(long)]
+        dryrun: bool,
+
         /// Output path: a directory will be created at this path, if one does
         /// not exist, and the selected objects will be decompiled into it.
         output: PathBuf,
@@ -144,7 +157,12 @@ fn main() {
     let db = std::fs::read(&db_path).unwrap();
 
     match command {
-        CliCommand::Decompile { group, filter, output, analyse: do_analyse, crossref: do_xref, .. } => {
+        CliCommand::Decompile { group, filter, output, analyse: do_analyse, crossref: do_xref, apply_known: do_apply_known, dryrun, .. } => {
+            // Discard patches if not applying to known version.
+            if !do_apply_known {
+                patcher.clear();
+            }
+
             // Load objects.
             let mut entries = adb::extract(db).collect::<HashMap<_, _>>();
             println!("{} objects loaded from .adb file", entries.len());
@@ -200,12 +218,18 @@ fn main() {
 
                 // Process cross references from code objects.
                 for (from, xref) in xrefs {
-                    entries.entry(xref.other_key)
+                    let entry = entries.entry(xref.other_key)
                         .or_insert_with(|| AdbEntry::new(match xref.kind {
-                            AdbXrefKind::GlobalR | AdbXrefKind::GlobalW => AdbEntryKind::Global,
+                            AdbXrefKind::GlobalR | AdbXrefKind::GlobalW | AdbXrefKind::GlobalWConst(..) => AdbEntryKind::Global,
                             AdbXrefKind::Scene => AdbEntryKind::Scene,
                             _ => AdbEntryKind::Dummy,
-                        }))
+                        }));
+                    if xref.kind == AdbXrefKind::Scene && matches!(entry.kind, AdbEntryKind::Dummy) {
+                        entry.kind = AdbEntryKind::Scene;
+                    } else if matches!(xref.kind, AdbXrefKind::GlobalR | AdbXrefKind::GlobalW | AdbXrefKind::GlobalWConst(..)) && matches!(entry.kind, AdbEntryKind::Dummy) {
+                        entry.kind = AdbEntryKind::Global;
+                    }
+                    entry
                         .xrefs
                         .push(AdbXref {
                             other_key: from.to_string(),
@@ -234,12 +258,23 @@ fn main() {
                 // Process cross references from code objects.
                 // TODO: code duplication
                 for (from, xref) in xrefs {
-                    entries.entry(xref.other_key)
+                    /*
+                    if xref.kind == AdbXrefKind::Scene {
+                        println!("scene: {}", xref.other_key);
+                    }
+                    */
+                    let entry = entries.entry(xref.other_key)
                         .or_insert_with(|| AdbEntry::new(match xref.kind {
-                            AdbXrefKind::GlobalR | AdbXrefKind::GlobalW => AdbEntryKind::Global,
+                            AdbXrefKind::GlobalR | AdbXrefKind::GlobalW | AdbXrefKind::GlobalWConst(..) => AdbEntryKind::Global,
                             AdbXrefKind::Scene => AdbEntryKind::Scene,
                             _ => AdbEntryKind::Dummy,
-                        }))
+                        }));
+                    if xref.kind == AdbXrefKind::Scene && matches!(entry.kind, AdbEntryKind::Dummy) {
+                        entry.kind = AdbEntryKind::Scene;
+                    } else if matches!(xref.kind, AdbXrefKind::GlobalR | AdbXrefKind::GlobalW | AdbXrefKind::GlobalWConst(..)) && matches!(entry.kind, AdbEntryKind::Dummy) {
+                        entry.kind = AdbEntryKind::Global;
+                    }
+                    entry
                         .xrefs
                         .push(AdbXref {
                             other_key: from.to_string(),
@@ -248,6 +283,16 @@ fn main() {
                         });
                 }
             }
+
+            /*
+            // Opcode statistics.
+            println!("opcode stats:");
+            let stats = crate::dis::code::opcodes::stats();
+            for i in 0..256 {
+                println!("  - {i:02x}: {}", stats[i]);
+            }
+            return;
+            */
 
             // Create hierarchy.
             let mut root = NavTree {
@@ -261,7 +306,9 @@ fn main() {
             root.add_dummies(&mut Vec::new(), &mut entries);
 
             // Apply known labels to objects.
-            known::apply_known(&mut root, &mut entries);
+            if do_apply_known {
+                known::apply_known(&mut root, &mut entries);
+            }
 
             // Second pass: output decompiled objects.
             let mut output = output.clone();
@@ -273,6 +320,17 @@ fn main() {
                 do_analyse,
                 first_pass: false,
             };
+
+            // Produce walkthrough.
+            for (idx, steps) in known::create_walkthrough(res) {
+                output.push(format!("walkthrough.{idx}.html"));
+                std::fs::write(&output, templates::Walkthrough {
+                    title: format!("walkthrough.{idx}"),
+                    steps,
+                }.render().unwrap()).unwrap();
+                output.pop();
+            }
+
             let mut count_string = 0;
             let mut count_raw = 0;
             let mut count_region = 0;
@@ -338,15 +396,21 @@ fn main() {
                     }
                     AdbEntryKind::Global => {
                         count_global += 1;
-                        dis::analyse_dummy(res).unwrap()
+                        let (p, code) = dis::analyse_dummy(entry, res).unwrap();
+                        pretty = p;
+                        code
                     }
                     AdbEntryKind::Dummy => {
                         count_dummy += 1;
-                        dis::analyse_dummy(res).unwrap()
+                        let (p, code) = dis::analyse_dummy(entry, res).unwrap();
+                        pretty = p;
+                        code
                     }
                     AdbEntryKind::Scene => {
                         count_scene += 1;
-                        dis::analyse_dummy(res).unwrap()
+                        let (p, code) = dis::analyse_dummy(entry, res).unwrap();
+                        pretty = p;
+                        code
                     }
                 };
                 let hierarchy = root.get(key_parts[0]).flatten();
@@ -354,15 +418,17 @@ fn main() {
                 output.push(format!("{key}.html"));
                 let mut sorted_xrefs = entry.xrefs.clone();
                 sorted_xrefs.sort_by_cached_key(|xref| (xref.other_key.clone(), xref.loc));
-                std::fs::write(&output, templates::Bytecode {
-                    title: key.to_string(),
-                    kind: &entry.kind,
-                    rendered_hierarchy: &rendered_hierarchy,
-                    rendered_breadcrumbs,
-                    code,
-                    pretty,
-                    xrefs: sorted_xrefs,
-                }.render().unwrap()).unwrap();
+                if !dryrun {
+                    std::fs::write(&output, templates::Bytecode {
+                        title: key.to_string(),
+                        kind: &entry.kind,
+                        rendered_hierarchy: &rendered_hierarchy,
+                        rendered_breadcrumbs,
+                        code,
+                        pretty,
+                        xrefs: sorted_xrefs,
+                    }.render().unwrap()).unwrap();
+                }
                 output.pop();
             }
             println!("code:    {count_code}, errored: {count_code_error}");

@@ -99,4 +99,8 @@ impl<'a> Patcher<'a> {
             f(original, &[])
         }
     }
+
+    pub fn clear(&mut self) {
+        self.data_affected.clear();
+    }
 }

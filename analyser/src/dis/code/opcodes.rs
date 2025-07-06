@@ -1,3 +1,5 @@
+use crate::SDB;
+
 use super::*;
 
 #[derive(Debug)]
@@ -12,10 +14,20 @@ struct OpCtxOut {
     advance: bool,
     decomp: Option<String>,
 }
+/*
+use std::cell::RefCell;
+thread_local! {
+    static STATS: RefCell<[u64; 256]> = RefCell::new([0; 256]);
+}
 
+pub fn stats() -> [u64; 256] {
+    STATS.with(|k| k.borrow().clone())
+}
+*/
 impl DisIns {
-    pub fn analyse_one(code: &[u8], mut pos: usize) -> Result<(usize, Self), DisError> {
-        let op_byte = code[pos];
+    pub fn analyse_one(code: &[u8], opcode_offset: u8, mut pos: usize) -> Result<(usize, Self), DisError> {
+        let mut op_byte = code[pos];
+        op_byte = ((op_byte as i32 + 0xF6 - opcode_offset as i32) % 0xF6) as u8;
         let op = op_byte as usize;
         let imm_size = DisOp::IMM_SIZE[op];
         if imm_size == usize::MAX {
@@ -25,6 +37,7 @@ impl DisIns {
         let mut buf = [0; 4];
         buf[0..imm_size].copy_from_slice(&code[pos..pos + imm_size]);
         pos += imm_size;
+        //STATS.with(|k| k.borrow_mut()[op_byte as usize] += 1);
         Ok((pos, Self {
             op_byte,
             op: DisOp::VARIANTS[op].unwrap(),
@@ -158,9 +171,6 @@ fn binop(op: &'static str, lhs: DisValue, rhs: DisValue) -> DisValue {
     DisValue::Binop(op, Box::new(lhs), Box::new(rhs))
 }
 
-const SDB: &str = "<span class=\"hl-dyn\">";
-const SDE: &str = "</span>";
-
 opcodes! {
     ctx, out, syms,
     a, b, c, imm;
@@ -233,89 +243,108 @@ opcodes! {
     Shr(0x26, 0, 2, 1, { out.pushing[0] = binop(">>", b, a); }),
     LogicAnd(0x27, 0, 2, 1, { out.pushing[0] = binop("&&", a, b); }),
     LogicOr(0x28, 0, 2, 1, { out.pushing[0] = binop("||", a, b); }),
-    LogicNot(0x29, 0, 1, 1, { out.pushing[0] = unop("!", a); }),
+    LogicNot(0x29, 0, 1, 1, { out.pushing[0] = binop("==", a, DisValue::Const(0)); }),
+    //LogicNot(0x29, 0, 1, 1, { out.pushing[0] = unop("!", a); }),
     Neg(0x2A, 0, 1, 1, { out.pushing[0] = unop("-", a); }),
     GlbPreInc(0x2B, 0, 1, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("++{SDB}global{SDE}[{}]", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("++{SDB}global{SE}[{}]", ctx.show_eval_str(&a)));
     }), // push(++global[pop()]) |
     GlbPreDec(0x2C, 0, 1, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("--{SDB}global{SDE}[{}]", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("--{SDB}global{SE}[{}]", ctx.show_eval_str(&a)));
     }), // push(--global[pop()]) |
     GlbPostInc(0x2D, 0, 1, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("{SDB}global{SDE}[{}]++", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}]++", ctx.show_eval_str(&a)));
     }), // push(global[pop()]++) |
     GlbPostDec(0x2E, 0, 1, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("{SDB}global{SDE}[{}]--", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}]--", ctx.show_eval_str(&a)));
     }), // push(global[pop()]--) |
     GlbSet(0x2F, 0, 2, 1, {
+        let mut value_hint = "".to_string();
         if let DisValue::Const(c) = b {
             ctx.xref_str(&a, AdbXrefKind::GlobalWConst(c));
+            if let Ok(name) = ctx.eval_str(&a)
+                && let Some(values) = ctx.res.entries.get(&name).and_then(|e| e.global.as_ref()).map(|g| &g.values) {
+                if let Some(hint) = values.get(&c) {
+                    value_hint = format!("{SCB} ({hint}){SE}");
+                } else {
+                    value_hint = format!("{SCB} (?){SE}");
+                }
+            }
         } else {
             ctx.xref_str(&a, AdbXrefKind::GlobalW);
         }
-        out.decomp = Some(format!("{SDB}global{SDE}[{}] = {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}] = {}{value_hint}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
         out.pushing[0] = b;
     }),
     GlbSetPop(0x30, 0, 2, 0, {
+        let mut value_hint = "".to_string();
         if let DisValue::Const(c) = b {
             ctx.xref_str(&a, AdbXrefKind::GlobalWConst(c));
+            if let Ok(name) = ctx.eval_str(&a)
+                && let Some(values) = ctx.res.entries.get(&name).and_then(|e| e.global.as_ref()).map(|g| &g.values) {
+                if let Some(hint) = values.get(&c) {
+                    value_hint = format!("{SCB} ({hint}){SE}");
+                } else {
+                    value_hint = format!("{SCB} (?){SE}");
+                }
+            }
         } else {
             ctx.xref_str(&a, AdbXrefKind::GlobalW);
         }
-        out.decomp = Some(format!("{SDB}global{SDE}[{}] = {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}] = {}{value_hint}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
     }),
     GlbAdd(0x31, 0, 2, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("{SDB}global{SDE}[{}] += {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}] += {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
         out.pushing[0] = b;
     }),
     GlbSub(0x32, 0, 2, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("{SDB}global{SDE}[{}] -= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}] -= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
         out.pushing[0] = b;
     }),
     GlbMul(0x33, 0, 2, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("{SDB}global{SDE}[{}] *= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}] *= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
         out.pushing[0] = b;
     }),
     GlbDiv(0x34, 0, 2, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("{SDB}global{SDE}[{}] /= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}] /= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
         out.pushing[0] = b;
     }),
     GlbMod(0x35, 0, 2, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("{SDB}global{SDE}[{}] %= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}] %= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
         out.pushing[0] = b;
     }),
     GlbShl(0x36, 0, 2, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("{SDB}global{SDE}[{}] <<= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}] <<= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
         out.pushing[0] = b;
     }),
     GlbShr(0x37, 0, 2, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("{SDB}global{SDE}[{}] >>= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}] >>= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
         out.pushing[0] = b;
     }),
     GlbBitAnd(0x38, 0, 2, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("{SDB}global{SDE}[{}] &= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}] &= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
         out.pushing[0] = b;
     }),
     GlbBirOr(0x39, 0, 2, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("{SDB}global{SDE}[{}] |= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}] |= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
         out.pushing[0] = b;
     }),
     GlbBitXor(0x3A, 0, 2, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("{SDB}global{SDE}[{}] ^= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}] ^= {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
         out.pushing[0] = b;
     }),
     OnInit(0x3B, 2, 0, 0, {
@@ -362,49 +391,49 @@ opcodes! {
     Unk41(0x41, 2, 1, 0), // obj[0xB9] = ip; ip += imm16(); find region spop() for object? |
     SetCursor(0x42, 0, 1, 0, {
         if matches!(a, DisValue::Const(255)) {
-            out.decomp = Some(format!("{SDB}self{SDE}.cursor = default"));
+            out.decomp = Some(format!("{SDB}self{SE}.cursor = default"));
         } else {
-            out.decomp = Some(format!("{SDB}self{SDE}.cursor = {}", ctx.show_eval_str(&a)));
+            out.decomp = Some(format!("{SDB}self{SE}.cursor = {}", ctx.show_eval_str(&a)));
         }
     }),
     SetRegion(0x44, 0, 1, 0, {
         ctx.xref_str(&a, AdbXrefKind::Region);
-        out.decomp = Some(format!("{SDB}self{SDE}.region = {}", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}self{SE}.region = {}", ctx.show_eval_str(&a)));
     }),
     SetPicture(0x45, 0, 1, 0, {
-        out.decomp = Some(format!("{SDB}self{SDE}.picture = {}", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}self{SE}.picture = {}", ctx.show_eval_str(&a)));
     }),
     Unk46(0x46, 0, 1, 0), // something with animation spop() for object? |
     SetPriority(0x47, 0, 1, 0, {
-        out.decomp = Some(format!("{SDB}self{SDE}.priority = {}", ctx.show_eval_int(&a)));
+        out.decomp = Some(format!("{SDB}self{SE}.priority = {}", ctx.show_eval_int(&a)));
     }),
     Unk48(0x48, 0, 0, 0), // ? something with screen resolution |
     SetDisplay(0x49, 0, 1, 0, {
-        out.decomp = Some(format!("{SDB}self{SDE}.displayName = {}", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}self{SE}.displayName = {}", ctx.show_eval_str(&a)));
     }),
     Unk4A(0x4A, 0, 2, 0), // ? set globals to pop(), pop() |
     Unk4B(0x4B, 0, 1, 0), // something with region spop() for object? |
     AddObject(0x4C, 0, 1, 0, {
         ctx.xref_str(&a, AdbXrefKind::Code);
-        out.decomp = Some(format!("{SDB}obj{SDE}.add({})", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}obj{SE}.add({})", ctx.show_eval_str(&a)));
     }),
     CloneCreate(0x4D, 0, 2, 0, {
-        out.decomp = Some(format!("{SDB}clone{SDE}.add({}, {})", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}clone{SE}.add({}, {})", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
     }),
     ScrRemove(0x4E, 0, 1, 0, {
-        out.decomp = Some(format!("{SDB}screen{SDE}.remove({})", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}screen{SE}.remove({})", ctx.show_eval_str(&a)));
     }),
     SwitchTo4F(0x4F, 0, 1, 0, {
         ctx.xref_str(&a, AdbXrefKind::Code);
-        out.decomp = Some(format!("{SDB}screen{SDE}.show(4F, {})", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}screen{SE}.show(4F, {})", ctx.show_eval_str(&a)));
     }),
     SwitchTo50(0x50, 0, 1, 0, {
         ctx.xref_str(&a, AdbXrefKind::Code);
-        out.decomp = Some(format!("{SDB}screen{SDE}.show(50, {})", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}screen{SE}.show(50, {})", ctx.show_eval_str(&a)));
     }),
     SetChoiceText(0x52, 0, 2, 0, {
         ctx.xref_str(&b, AdbXrefKind::Code);
-        out.decomp = Some(format!("{SDB}obj{SDE}[{}].displayName = {}", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}obj{SE}[{}].displayName = {}", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
     }), // something with text spop(), object spop() |
     Unk53(0x53, 0, 2, 0), // something with region spop(), object spop() |
     Unk54(0x54, 0, 2, 0), // change screen patch? with region spop(), object spop() |
@@ -412,25 +441,25 @@ opcodes! {
     Unk56(0x56, 0, 1, 0), // unload character spop() |
     Unk57(0x57, 0, 2, 0), // associate character??? |
     ChrAnimate(0x58, 0, 2, 0, {
-        out.decomp = Some(format!("{SDB}char{SDE}[{}].animate({})", ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
+        out.decomp = Some(format!("{SDB}char{SE}[{}].animate({})", ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
     }),
     ChrHide(0x59, 0, 1, 0, {
-        out.decomp = Some(format!("{SDB}char{SDE}[{}].hide()", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}char{SE}[{}].hide()", ctx.show_eval_str(&a)));
     }),
     ChrShow(0x5A, 0, 1, 0, {
-        out.decomp = Some(format!("{SDB}char{SDE}[{}].show()", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}char{SE}[{}].show()", ctx.show_eval_str(&a)));
     }),
     ChrDisable(0x5B, 0, 1, 0, {
-        out.decomp = Some(format!("{SDB}char{SDE}[{}].disable()", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}char{SE}[{}].disable()", ctx.show_eval_str(&a)));
     }),
     ChrEnable(0x5C, 0, 1, 0, {
-        out.decomp = Some(format!("{SDB}char{SDE}[{}].enable()", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}char{SE}[{}].enable()", ctx.show_eval_str(&a)));
     }),
     ChrMoveUser(0x5D, 0, 3, 0, {
-        out.decomp = Some(format!("{SDB}char{SDE}[{}].moveTo(pos: {}, pose: {}, usermove)", ctx.show_eval_str(&c), ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
+        out.decomp = Some(format!("{SDB}char{SE}[{}].moveTo(pos: {}, pose: {}, usermove)", ctx.show_eval_str(&c), ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
     }),
     ChrLeave(0x5E, 0, 2, 0, {
-        out.decomp = Some(format!("{SDB}char{SDE}[{}].leave(pos: {})", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}char{SE}[{}].leave(pos: {})", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
     }),
     ChrSet(0x5F, 0, 3, 0, {
         out.decomp = Some(format!("set character\n- char: {}\n- pos:  {}\n- pose: {}", ctx.show_eval_str(&c), ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
@@ -439,13 +468,13 @@ opcodes! {
         out.decomp = Some(format!("set character dir\n- char: {}\n- pose: {}", ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
     }), // set character dir??? |
     ChrPoint(0x61, 0, 2, 0, {
-        out.decomp = Some(format!("{SDB}char{SDE}[{}].pointTo({})", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}char{SE}[{}].pointTo({})", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
     }),
     UserDisable(0x62, 0, 0, 0, {
-        out.decomp = Some(format!("{SDB}userInput{SDE}.disable()"));
+        out.decomp = Some(format!("{SDB}userInput{SE}.disable()"));
     }),
     UserEnable(0x63, 0, 0, 0, {
-        out.decomp = Some(format!("{SDB}userInput{SDE}.enable()"));
+        out.decomp = Some(format!("{SDB}userInput{SE}.enable()"));
     }),
     Unk64(0x64, 0, 1, 0, {
         out.decomp = Some(format!("unk64(sample for phase_var? {})", ctx.show_eval_str(&a)));
@@ -464,26 +493,26 @@ opcodes! {
     Unk6E(0x6E, 0, 0, 0), // ? |
     InvAdd6F(0x6F, 0, 1, 0, {
         ctx.xref_str(&a, AdbXrefKind::Code);
-        out.decomp = Some(format!("{SDB}inv{SDE}.add({})", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}inv{SE}.add({})", ctx.show_eval_str(&a)));
     }),
     Unk70(0x70, 0, 1, 0), // remove object spop() from inventory |
     CdPlay(0x71, 0, 1, 0, {
-        out.decomp = Some(format!("{SDB}cd{SDE}.play({})", ctx.show_eval_int(&a)));
+        out.decomp = Some(format!("{SDB}cd{SE}.play({})", ctx.show_eval_int(&a)));
     }),
     CdStop(0x72, 0, 0, 0, {
-        out.decomp = Some(format!("{SDB}cd{SDE}.stop()"));
+        out.decomp = Some(format!("{SDB}cd{SE}.stop()"));
     }),
     CdPause(0x73, 0, 0, 0, {
-        out.decomp = Some(format!("{SDB}cd{SDE}.pause()"));
+        out.decomp = Some(format!("{SDB}cd{SE}.pause()"));
     }),
     CdResume(0x74, 0, 0, 0, {
-        out.decomp = Some(format!("{SDB}cd{SDE}.resume()"));
+        out.decomp = Some(format!("{SDB}cd{SE}.resume()"));
     }),
     AnimPlay(0x75, 0, 1, 0, {
-        out.decomp = Some(format!("{SDB}anim{SDE}.play({})", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}anim{SE}.play({})", ctx.show_eval_str(&a)));
     }),
     SmpPlay(0x76, 0, 1, 0, {
-        out.decomp = Some(format!("{SDB}sample{SDE}.play({})", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}sample{SE}.play({})", ctx.show_eval_str(&a)));
     }),
     Unk77(0x77, 0, 0, 0), // ? set a state flag to 1 |
     Say78(0x78, 0, 2, 0), // dialogue??? |
@@ -504,16 +533,16 @@ opcodes! {
     Unk83(0x83, 0, 1, 0), // ? set a state var to pop() |
     Unk84(0x84, 0, 1, 0), // ? set a state var to pop() |
     SmpParams(0x85, 0, 2, 0, {
-        out.decomp = Some(format!("{SDB}sample{SDE}.balance = {}\n{SDB}sample{SDE}.volume = {}", ctx.show_eval_int(&a), ctx.show_eval_int(&b)));
+        out.decomp = Some(format!("{SDB}sample{SE}.balance = {}\n{SDB}sample{SE}.volume = {}", ctx.show_eval_int(&a), ctx.show_eval_int(&b)));
     }), // ? set a state var to pop(), ???, set a var to pop(), ??? |
     AnimPos(0x86, 0, 2, 0, {
-        out.decomp = Some(format!("{SDB}anim{SDE}.pos = ({}, {})", ctx.show_eval_int(&b), ctx.show_eval_int(&a)));
+        out.decomp = Some(format!("{SDB}anim{SE}.pos = ({}, {})", ctx.show_eval_int(&b), ctx.show_eval_int(&a)));
     }), // ? set two state vars to pop(), pop() |
     SmpName(0x87, 0, 1, 0, {
-        out.decomp = Some(format!("{SDB}global{SDE}[{}] = 0\n{SDB}sample{SDE}.name = {}", ctx.show_eval_str(&a), ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}global{SE}[{}] = 0\n{SDB}sample{SE}.name = {}", ctx.show_eval_str(&a), ctx.show_eval_str(&a)));
     }), // global[pop()] = 0, then ... |
     SmpLoop(0x88, 0, 0, 0, {
-        out.decomp = Some(format!("{SDB}sample{SDE}.loop = true"));
+        out.decomp = Some(format!("{SDB}sample{SE}.loop = true"));
     }), // reset two state vars |
     Unk89(0x89, 0, 1, 0), // ? set a state var to pop() |
     Unk8A(0x8A, 0, 2, 0, {
@@ -533,10 +562,10 @@ opcodes! {
     }), // change screen patch spop(), spop() ? |
     Unk8D(0x8D, 0, 0, 1), // push(count of ???) (inventory items?) |
     SetVarString(0x8E, 0, 2, 0, {
-        out.decomp = Some(format!("{SDB}var{SDE}[{}] := {}", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}var{SE}[{}] := {}", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
     }), // set string config var spop2() to spop1() or reset it? |
     SetVarInt(0x8F, 0, 2, 0, {
-        out.decomp = Some(format!("{SDB}var{SDE}[{}] := {}", ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
+        out.decomp = Some(format!("{SDB}var{SE}[{}] := {}", ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
     }),
     Unk90(0x90, 0, 0, 1, { out.pushing[0] = DisValue::Dynamic("mouse.x".to_string()); }), // push(a state var?) |
     Unk91(0x91, 0, 0, 1, { out.pushing[0] = DisValue::Dynamic("mouse.y".to_string()); }), // push(a state var?) |
@@ -571,14 +600,14 @@ opcodes! {
         out.decomp = Some("unkA2()".to_string());
     }), // early exit? |
     InvEnable(0xA3, 0, 0, 0, {
-        out.decomp = Some(format!("{SDB}inv{SDE}.enable()"));
+        out.decomp = Some(format!("{SDB}inv{SE}.enable()"));
     }),
     ScrPrev(0xA4, 0, 0, 0, {
-        out.decomp = Some(format!("{SDB}screen{SDE}.back()"));
+        out.decomp = Some(format!("{SDB}screen{SE}.back()"));
     }),
     SetPos(0xA5, 0, 3, 0, {
         ctx.xref_str(&c, AdbXrefKind::Code);
-        out.decomp = Some(format!("{SDB}obj{SDE}[{}].pos = ({}, {})", ctx.show_eval_str(&c), ctx.show_eval_int(&b), ctx.show_eval_int(&a)));
+        out.decomp = Some(format!("{SDB}obj{SE}[{}].pos = ({}, {})", ctx.show_eval_str(&c), ctx.show_eval_int(&b), ctx.show_eval_int(&a)));
     }),
     UnkA6(0xA6, 0, 3, 0), // set two variables for an object? |
     UnkA7(0xA7, 0, 0, 0), // do something with current object? |
@@ -598,7 +627,7 @@ opcodes! {
     CloneGetVar(0xB2, 0, 2, 1, { out.pushing[0] = unop("global", binop("+s", b, a)); }),
     CloneSetVar(0xB3, 0, 3, 1, {
         ctx.xref_str(&a, AdbXrefKind::GlobalW);
-        out.decomp = Some(format!("{SDB}global{SDE}[({}) +s ({})] = {}", ctx.show_eval_str(&c), ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
+        out.decomp = Some(format!("{SDB}global{SE}[({}) +s ({})] = {}", ctx.show_eval_str(&c), ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
     }),
     UnkB4(0xB4, 0, 0, 1), // push(a state var?) |
     UnkB5(0xB5, 0, 0, 0), // ? set a state flag to 1 |
@@ -621,10 +650,10 @@ opcodes! {
     UnkC4(0xC4, 0, 1, 1, { out.pushing[0] = unop("object.h", a); }), // push(some var from object spop()) |
     UnkC5(0xC5, 0, 2, 0), // something with object (in current scene)?? |
     CursorAdd(0xC6, 0, 1, 1, {
-        out.decomp = Some(format!("{SDB}cursors{SDE}.add({})", ctx.show_eval_str(&a)));
+        out.decomp = Some(format!("{SDB}cursors{SE}.add({})", ctx.show_eval_str(&a)));
         out.pushing[0] = unop("cursors", a);
     }),
-    CursorRemove(0xC7, 0, 1, 0, { out.decomp = Some(format!("{SDB}cursors{SDE}.remove({})", ctx.show_eval_int(&a))); }),
+    CursorRemove(0xC7, 0, 1, 0, { out.decomp = Some(format!("{SDB}cursors{SE}.remove({})", ctx.show_eval_int(&a))); }),
     UnkC8(0xC8, 0, 2, 0), // ? set two state vars to pop(), pop() |
     UnkC9(0xC9, 2, 0, 0, {
         let mut branch = ctx.clone();
@@ -691,7 +720,7 @@ opcodes! {
     UnkDA(0xDA, 0, 2, 0), // set rain density and density change to pop(), pop() |
     UnkDB(0xDB, 0, 3, 0), // leave character??? |
     ChrStop(0xDC, 0, 2, 0, {
-        out.decomp = Some(format!("{SDB}char{SDE}[{}].stop({})", ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
+        out.decomp = Some(format!("{SDB}char{SE}[{}].stop({})", ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
     }),
     UnkDD(0xDD, 0, 1, 0), // something with animation |
     UnkDE(0xDE, 0, 1, 0), // something with animation |
@@ -703,7 +732,7 @@ opcodes! {
         out.decomp = Some(format!("create font\n- font: {}\n- id:   {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
     }),
     ChrMove(0xE4, 0, 3, 0, {
-        out.decomp = Some(format!("{SDB}char{SDE}[{}].moveTo(pos: {}, pose: {}, non-usermove)", ctx.show_eval_str(&c), ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
+        out.decomp = Some(format!("{SDB}char{SE}[{}].moveTo(pos: {}, pose: {}, non-usermove)", ctx.show_eval_str(&c), ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
     }),
     OnKey(0xE5, 2, 1, 0, {
         let key = ctx.show_eval_str(&a);

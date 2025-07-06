@@ -1,4 +1,4 @@
-mod code;
+pub mod code;
 mod error;
 mod lines;
 
@@ -106,12 +106,13 @@ pub fn analyse_region<'a>(entry: &'a AdbEntry, res: Resources<'a>) -> Result<(St
     // header
     let name_end = code.iter().position(|b| *b == 0).unwrap_or(0x20);
     let scene = encoding_rs::WINDOWS_1250.decode_without_bom_handling_and_without_replacement(&code[0..name_end]).unwrap();
+    let scene_key = scene.replace(".", "");
     output.xrefs.push(AdbXref {
-        other_key: scene.to_string(),
+        other_key: scene_key.to_string(),
         loc: None,
         kind: AdbXrefKind::Scene,
     });
-    output.line(0, name_end, Some(format!("scene: <a href=\"{scene}.html\">{scene}</a>")), None, None);
+    output.line(0, name_end, Some(format!("scene: <a href=\"{scene_key}.html\">{scene}</a>")), None, None);
     if name_end < 0x20 {
         output.line(name_end, 0x20, Some("garbage?".to_string()), None, None);
     }
@@ -155,7 +156,7 @@ pub fn analyse_region<'a>(entry: &'a AdbEntry, res: Resources<'a>) -> Result<(St
     }
     let mut svg = String::new();
     let reg_width = entry.region.as_ref().and_then(|r| r.width).map(|w| w as u16)
-        .or(res.entries.get(scene.as_ref()).and_then(|e| e.scene.as_ref()).and_then(|s| s.width).map(|w| w as u16))
+        .or(res.entries.get(&scene_key).and_then(|e| e.scene.as_ref()).and_then(|s| s.width).map(|w| w as u16))
         .unwrap_or(800);
     let reg_height = 600u16;
     const SCALE: u16 = 1;
@@ -164,7 +165,7 @@ pub fn analyse_region<'a>(entry: &'a AdbEntry, res: Resources<'a>) -> Result<(St
     for (x, y, bg) in entry.region.as_ref().iter().flat_map(|i| i.bg_reference.iter()) {
         svg.push_str(&format!("<image x=\"{x}\" y=\"{y}\" href=\"../../../exported/{bg}\"/>"));
     }
-    for (x, y, bg) in res.entries.get(scene.as_ref()).and_then(|e| e.scene.as_ref()).into_iter().flat_map(|s| s.bg_reference.iter()) {
+    for (x, y, bg) in res.entries.get(&scene_key).and_then(|e| e.scene.as_ref()).into_iter().flat_map(|s| s.bg_reference.iter()) {
         svg.push_str(&format!("<image x=\"{x}\" y=\"{y}\" href=\"../../../exported/{bg}\"/>"));
     }
     for (shape_idx, points) in shapes.into_iter().enumerate() {
@@ -213,7 +214,13 @@ pub fn analyse_dialogue_text<'a>(raw: &'a [u8], res: Resources<'a>) -> Result<Di
                     advance,
                 ));
                 output.line(pos, (pos + raw_line.len() + 1).min(raw.len()), None, Some(format!("<span class=\"hl-dyn\">{line}</span>")), None);
-            } else if let Some((sound_id, sound_num, advance)) = chars.get_mut(&line[1..].to_ascii_lowercase()) {
+            } else if line.starts_with("@delay") {
+                output.line(pos, (pos + raw_line.len() + 1).min(raw.len()), None, Some(format!("<span class=\"hl-dyn\">{line}</span>")), None);
+            } else if let Some((sound_id, sound_num, _advance)) = chars.get_mut(&line[1..].to_ascii_lowercase()) {
+                // TODO: prefixes also work, e.g.:
+                // @samuel_leva should trigger a line from @samuel
+                // see 10a5.13fa
+                // TODO: what does the third argument mean?
                 let sound_file = format!("{sound_id}{sound_num:04}.ogg");
                 output.line(pos, (pos + raw_line.len() + 1).min(raw.len()), None, Some(format!("<span class=\"hl-dyn\">{line}</span> {}", show_data(&sound_file, res))), None);
                 *sound_num += 1; // *advance;
@@ -261,10 +268,12 @@ pub fn analyse_code<'a>(code: &'a [u8], res: Resources<'a>) -> Result<(Option<St
     if size != code.len() {
         return Err(DisError::LengthMismatch);
     }
+    let opcode_offset = code[7].wrapping_sub(0x05);
     let code_size = u16::from_le_bytes(code[0x12..0x14].try_into().unwrap()) as usize;
     let string_count = u16::from_le_bytes(code[0x14..0x16].try_into().unwrap()) as usize;
 
     output.line(4, 6, Some(format!("object size: {size} / 0x{size:04x} bytes")), None, None);
+    output.line(7, 8, Some(format!("opcode offset: 0x{opcode_offset:02x}")), None ,None);
     output.line(8, 12, Some("magic".to_string()), None, None);
     output.line(0x12, 0x14, Some(format!("code size: {code_size} / 0x{code_size:04x} bytes")), None, None);
     output.line(0x14, 0x16, Some(format!("string count: {string_count}")), None, None);
@@ -291,7 +300,7 @@ pub fn analyse_code<'a>(code: &'a [u8], res: Resources<'a>) -> Result<(Option<St
         let code_start = 0x18;
         let code_end = string_pool_start;
         output.line(code_start, code_start, None, None, Some("<span class=\"jump\"></span>code start".to_string()));
-        match output.with_offset(code_start, |output| code::analyse(&code[code_start..code_end], code_start, &strings[..], res, output)) {
+        match output.with_offset(code_start, |output| code::analyse(&code[code_start..code_end], opcode_offset, code_start, &strings[..], res, output)) {
             Ok(pretty) => {
                 if !pretty.is_empty() {
                     return Ok((Some(pretty), output));
@@ -313,8 +322,20 @@ pub fn analyse_code<'a>(code: &'a [u8], res: Resources<'a>) -> Result<(Option<St
     Ok((None, output))
 }
 
-pub fn analyse_dummy(res: Resources<'_>) -> Result<DisCode<'_>, DisError> {
+pub fn analyse_dummy<'a>(entry: &'a AdbEntry, res: Resources<'_>) -> Result<(Option<String>, DisCode<'a>), DisError> {
     let mut output = DisCode::new(&[], res.first_pass);
     output.finalise();
-    Ok(output)
+    let mut pretty = None;
+    if !res.first_pass {
+        if let Some(global) = &entry.global {
+            let mut values = global.values.iter().collect::<Vec<_>>();
+            values.sort();
+            let mut lines = String::new();
+            for (key, value) in values {
+                lines.push_str(&format!("{key: <4} <span class=\"hl-com\">{value}</span>\n"));
+            }
+            pretty = Some(lines);
+        }
+    }
+    Ok((pretty, output))
 }

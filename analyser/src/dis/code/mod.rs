@@ -1,11 +1,11 @@
 use std::collections::{HashMap, VecDeque};
 
-use crate::{adb::{AdbXref, AdbXrefKind}, Resources};
+use crate::{adb::{AdbXref, AdbXrefKind}, Resources, SCB, SE};
 
 use super::{DisCode, DisError};
 
 mod cfg;
-mod opcodes;
+pub mod opcodes;
 use cfg::Decompiler;
 use opcodes::DisIns;
 pub use opcodes::DisOp;
@@ -277,9 +277,23 @@ impl<'a> DisSym<'a> {
                 (&"&&", Ok(lhs), Ok(rhs)) => Ok(if lhs != 0 && rhs != 0 { 1 } else { 0 }),
                 (&"||", Ok(lhs), Ok(rhs)) => Ok(if lhs != 0 || rhs != 0 { 1 } else { 0 }),
                 (op, Ok(lhs), Ok(rhs)) => Err(format!("({lhs}) {op}? ({rhs})")),
-                (op, Ok(lhs), Err(rhs)) => Err(format!("({lhs}) {op} ({rhs})")),
-                (op, Err(lhs), Ok(rhs)) => Err(format!("({lhs}) {op} ({rhs})")),
-                (op, Err(lhs), Err(rhs)) => Err(format!("({lhs}) {op} ({rhs})")),
+                (op, reslhs, resrhs) => {
+                    match (op, &reslhs, &resrhs) {
+                        (&"==", Ok(c), _) if matches!(**rhs, DisValue::Unop("global", _)) => {
+                            let DisValue::Unop(_, name) = *rhs.clone() else { unreachable!(); };
+                            if let Ok(name) = self.eval_str(&name)
+                                && let Some(values) = self.res.entries.get(&name).and_then(|e| e.global.as_ref()).map(|g| &g.values) {
+                                if let Some(hint) = values.get(&c) {
+                                    return Err(format!("({} {SCB}{hint}{SE}) {op} ({})", self.show_res_int(reslhs), self.show_res_int(resrhs)))
+                                } else {
+                                    return Err(format!("({} {SCB}?{SE}) {op} ({})", self.show_res_int(reslhs), self.show_res_int(resrhs)))
+                                }
+                            }
+                        },
+                        _ => (),
+                    }
+                    Err(format!("({}) {op} ({})", self.show_res_int(reslhs), self.show_res_int(resrhs)))
+                }
             },
             DisValue::Unop(op, val) => match (op, self.eval_int(val), self.eval_str(val)) {
                 (&"-", Ok(val), _) => Ok(-(val as i32) as u32),
@@ -316,6 +330,7 @@ impl<'a> DisSym<'a> {
 
 pub fn analyse(
     code: &[u8],
+    opcode_offset: u8,
     code_start: usize,
     strings: &[String],
     res: Resources,
@@ -339,7 +354,7 @@ pub fn analyse(
         Data,
     }
     let mut marked = HashMap::new();
-    let mut decompiler = Decompiler::new(code_start, code);
+    let mut decompiler = Decompiler::new(code_start, opcode_offset, code);
     while let Some(head) = queue.pop_front() {
         if code.len() <= head.pos {
             return Err(DisError::MalformedCode(format!("pos {:04x} exceeds code length {}", code_start + head.pos, code.len())));
@@ -350,7 +365,7 @@ pub fn analyse(
             Some(ByteMark::Data) => return Err(DisError::MalformedCode(format!("pos {:04x} marked as op (previously marked as data)", code_start + head.pos))),
             None => { marked.insert(head.pos, ByteMark::Op { stack_len: head.op_stack.items.len() }); }
         }
-        let (pos, op) = match DisIns::analyse_one(code, head.pos) {
+        let (pos, op) = match DisIns::analyse_one(code, opcode_offset, head.pos) {
             Ok(v) => v,
             Err(err) => {
                 output.error = true;
