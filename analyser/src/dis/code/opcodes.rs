@@ -14,7 +14,7 @@ struct OpCtxOut {
     advance: bool,
     decomp: Option<String>,
 }
-/*
+
 use std::cell::RefCell;
 thread_local! {
     static STATS: RefCell<[u64; 256]> = RefCell::new([0; 256]);
@@ -23,11 +23,19 @@ thread_local! {
 pub fn stats() -> [u64; 256] {
     STATS.with(|k| k.borrow().clone())
 }
-*/
+
 impl DisIns {
     pub fn analyse_one(code: &[u8], opcode_offset: u8, mut pos: usize) -> Result<(usize, Self), DisError> {
         let mut op_byte = code[pos];
-        op_byte = ((op_byte as i32 + 0xF6 - opcode_offset as i32) % 0xF6) as u8;
+        STATS.with(|k| k.borrow_mut()[op_byte as usize] += 1);
+        // TODO: maybe this isn't actually an offset...?
+        op_byte = match (opcode_offset, op_byte) {
+            (0xCC, 0x00..0x07) => op_byte + 59,
+            (0xCC, 0x07..0x18) => op_byte + 35,
+            (0xCC, 0x18..0xCE) => op_byte + 42,
+            (0xCC, 0xCE..0xF6) => op_byte - 204,
+            _ => op_byte,
+        };
         let op = op_byte as usize;
         let imm_size = DisOp::IMM_SIZE[op];
         if imm_size == usize::MAX {
@@ -37,7 +45,6 @@ impl DisIns {
         let mut buf = [0; 4];
         buf[0..imm_size].copy_from_slice(&code[pos..pos + imm_size]);
         pos += imm_size;
-        //STATS.with(|k| k.borrow_mut()[op_byte as usize] += 1);
         Ok((pos, Self {
             op_byte,
             op: DisOp::VARIANTS[op].unwrap(),
