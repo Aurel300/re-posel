@@ -93,9 +93,12 @@ impl AdbEntry {
                 || self.xrefs.iter().any(|xref| xref.kind == AdbXrefKind::Region))
     }
 
+    pub fn is_text(&self) -> bool {
+        self.xrefs.iter().any(|xref| xref.kind == AdbXrefKind::Text)
+    }
+
     pub fn is_dialogue_text(&self) -> bool {
-        matches!(self.kind, AdbEntryKind::String { .. })
-            && self.xrefs.iter().any(|xref| xref.kind == AdbXrefKind::DialogueText)
+        self.xrefs.iter().any(|xref| xref.kind == AdbXrefKind::DialogueText)
     }
 
     pub fn describe(&self, key: &str) -> &'static str {
@@ -103,6 +106,7 @@ impl AdbEntry {
             &AdbEntryKind::Code(_) => "code",
             AdbEntryKind::String { .. } => "string",
             AdbEntryKind::Raw(_) if self.is_region(key) => "reg",
+            AdbEntryKind::Raw(_) if self.is_text() || self.is_dialogue_text() => "string",
             AdbEntryKind::Raw(_) => "raw",
             AdbEntryKind::Dummy => "dummy",
             AdbEntryKind::Global => "glb",
@@ -144,7 +148,6 @@ pub fn create_patched(mut db: Vec<u8>, patcher: Patcher) -> Vec<u8> {
         };
         if size == 0 {
             unreachable!("empty entry");
-            //return (key, AdbEntry::Empty);
         }
         let pos = 0x14 + 0x28 * count + idx;
         let entry = db[pos..pos + size].to_vec();
@@ -178,56 +181,13 @@ pub fn extract(db: Vec<u8>) -> impl Iterator<Item = (String, AdbEntry)> {
         .map(move |AdbIndexEntry { idx, key, size }| {
             if size == 0 {
                 unreachable!("empty entry");
-                //return (key, AdbEntry::Empty);
             }
             let pos = 0x14 + 0x28 * count + idx;
-            let mut entry = db[pos..pos + size].to_vec();
+            let entry = db[pos..pos + size].to_vec();
             //(key, if size >= 20 && &db[pos + 6..pos + 16] == b"\x01\x05\xAD\xDE\x0C\x00\x01\x00\x00\x00" {
             if size >= 12 && &entry[8..12] == b"\xAD\xDE\x0C\x00" {
                 return (key, AdbEntry::new(AdbEntryKind::Code(entry)));
             }
-            let entry_sub = &entry[0..entry.len() - 1];
-            let ascii = entry_sub.iter().filter(|b| 0x0A <= **b && **b < 0x7F).count();
-            let ascii_decodable = entry_sub.iter().zip(XOR_KEY.iter().cycle()).filter(|(b, k)| (*b ^ *k ^ 0xFF) <= 0x7F).count();
-            let majority_ascii = ascii as f32 / (size - 1) as f32 >= 0.9;
-            let majority_decoded_ascii = ascii_decodable as f32 / (size - 1) as f32 >= 0.9;
-            let last_null = *entry.last().unwrap() == 0;
-            let last_decoded_null = entry.last().unwrap() ^ XOR_KEY[(size - 1) % XOR_KEY.len()] ^ 0xFF == 0;
-            if majority_decoded_ascii {
-                dexor(&mut entry[..]);
-                if last_null || last_decoded_null {
-                    let decoded = encoding_rs::WINDOWS_1250.decode_without_bom_handling_and_without_replacement(&entry[0..entry.len() - 1]).unwrap().to_string();
-                    return (key, AdbEntry::new(AdbEntryKind::String {
-                        raw: entry,
-                        decoded,
-                        _ignore_last: true,
-                    }));
-                }
-                let decoded = encoding_rs::WINDOWS_1250.decode_without_bom_handling_and_without_replacement(&entry[..]).unwrap().to_string();
-                return (key, AdbEntry::new(AdbEntryKind::String {
-                    raw: entry,
-                    decoded,
-                    _ignore_last: false,
-                }));
-            }
-            if majority_ascii {
-                if last_null {
-                    let decoded = encoding_rs::WINDOWS_1250.decode_without_bom_handling_and_without_replacement(&entry[0..entry.len() - 1]).unwrap().to_string();
-                    return (key, AdbEntry::new(AdbEntryKind::String {
-                        raw: entry,
-                        decoded,
-                        _ignore_last: true,
-                    }));
-                }
-                let decoded = encoding_rs::WINDOWS_1250.decode_without_bom_handling_and_without_replacement(&entry[..]).unwrap().to_string();
-                return (key, AdbEntry::new(AdbEntryKind::String {
-                    raw: entry,
-                    decoded,
-                    _ignore_last: false,
-                }));
-            }
-            //let decoded = encoding_rs::WINDOWS_1250.decode_without_bom_handling_and_without_replacement(&entry[..]).unwrap().to_string();
-            (key, AdbEntry::new(AdbEntryKind::Raw(entry)))//, decoded)));
-            //return (key, AdbEntry::Raw(entry));
+            (key, AdbEntry::new(AdbEntryKind::Raw(entry)))
         })
 }

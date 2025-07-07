@@ -12,6 +12,7 @@ use std::{collections::{HashMap, HashSet}, path::PathBuf};
 
 mod adb;
 pub mod dis;
+pub mod encoding;
 mod grp;
 pub mod known;
 mod patches;
@@ -42,6 +43,11 @@ struct Cli {
     /// effect when decompiling and creating patched .adb files.
     #[arg(long)]
     patch: Vec<String>,
+
+    /// When provided, sets the text encoding used for string objects in .adb
+    /// files. Default: "windows-1250".
+    #[arg(long)]
+    encoding: Option<String>,
 
     #[command(subcommand)]
     command: Option<CliCommand>,
@@ -118,6 +124,11 @@ fn main() {
         println!("no command specified, exiting");
         return;
     };
+
+    // Set text encoding.
+    if let Some(label) = cli.encoding {
+        encoding::set_encoding(&label);
+    }
 
     // For extraction, we don't need an ADB input.
     if let CliCommand::Extract { input, name, output } = command {
@@ -368,9 +379,13 @@ fn main() {
                         count_string += 1; // TODO
                         dis::analyse_dialogue_text(raw, res).unwrap()
                     }
-                    AdbEntryKind::String { raw, decoded, .. } => {
+                    AdbEntryKind::String { raw, .. } => {
                         count_string += 1;
-                        dis::analyse_string(raw, decoded, res).unwrap()
+                        dis::analyse_string(raw, res).unwrap()
+                    }
+                    AdbEntryKind::Raw(raw) if entry.is_text() || entry.is_dialogue_text() => {
+                        count_string += 1;
+                        dis::analyse_string(raw, res).unwrap()
                     }
                     AdbEntryKind::Raw(_) if entry.is_region(key) => {
                         count_region += 1;
@@ -379,8 +394,11 @@ fn main() {
                         code
                     }
                     AdbEntryKind::Raw(c) => {
-                        count_raw += 1;
-                        dis::analyse_raw(c, res).unwrap()
+                        // count_raw += 1;
+                        // dis::analyse_raw(c, res).unwrap()
+                        // TODO: this is a stopgap
+                        count_string += 1;
+                        dis::analyse_string(c, res).unwrap()
                     }
                     AdbEntryKind::Code(c) => {
                         count_code += 1;

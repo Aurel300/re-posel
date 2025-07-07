@@ -7,7 +7,7 @@ use std::collections::HashMap;
 pub use error::*;
 pub use lines::*;
 
-use crate::{adb::{AdbEntry, AdbEntryKind, AdbXref, AdbXrefKind}, Resources};
+use crate::{adb::{AdbEntry, AdbEntryKind, AdbXref, AdbXrefKind}, xor::{dexor, XOR_KEY}, Resources};
 
 pub fn hexdump(code: &[u8]) -> String {
     if code.is_empty() {
@@ -79,10 +79,12 @@ pub fn show_string(s: &str, res: Resources) -> String {
         "".to_string()
     };
     match &entry.kind {
+        // TODO: these should be fixed and based on Raw + xrefs
         AdbEntryKind::String { decoded, .. } if res.data.contains_key(&decoded.to_ascii_lowercase()) =>
             format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> S{rev_name}<span class=\"hl-str\">\"{}\"</span></a> -> {})", shortsan(decoded), show_data(decoded, res)),
         AdbEntryKind::String { decoded, .. } =>
             format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> S{rev_name}<span class=\"hl-str\">\"{}\"</span></a>)", shortsan(decoded)),
+
         AdbEntryKind::Raw(..) =>
             format!("<span class=\"hl-str\">\"{s}\"</span>(<a href=\"{s}.html\">-> R{rev_name}</a>)"),
         AdbEntryKind::Code(_) =>
@@ -105,7 +107,7 @@ pub fn analyse_region<'a>(entry: &'a AdbEntry, res: Resources<'a>) -> Result<(St
 
     // header
     let name_end = code.iter().position(|b| *b == 0).unwrap_or(0x20);
-    let scene = encoding_rs::WINDOWS_1250.decode_without_bom_handling_and_without_replacement(&code[0..name_end]).unwrap();
+    let scene = crate::encoding::decode(&code[0..name_end]);
     let scene_key = scene.replace(".", "");
     output.xrefs.push(AdbXref {
         other_key: scene_key.to_string(),
@@ -195,7 +197,7 @@ pub fn analyse_dialogue_text<'a>(raw: &'a [u8], res: Resources<'a>) -> Result<Di
         if trimmed_line.ends_with(&[b'\r']) {
             trimmed_line = &trimmed_line[..trimmed_line.len() - 1];
         }
-        let line = encoding_rs::WINDOWS_1250.decode_without_bom_handling_and_without_replacement(trimmed_line).unwrap();
+        let line = crate::encoding::decode(trimmed_line);
         if line.starts_with("@") {
             if line.starts_with("@@") {
                 output.line(pos, (pos + raw_line.len() + 1).min(raw.len()), None, Some(format!("<span class=\"hl-com\">{line}</span>")), None);
@@ -240,15 +242,26 @@ pub fn analyse_dialogue_text<'a>(raw: &'a [u8], res: Resources<'a>) -> Result<Di
 
 pub fn analyse_raw<'a>(code: &'a [u8], res: Resources<'a>) -> Result<DisCode<'a>, DisError> {
     let mut output = DisCode::new(code, res.first_pass);
-    let s = encoding_rs::WINDOWS_1250.decode_without_bom_handling_and_without_replacement(code).unwrap();
+    let s = crate::encoding::decode(code);
     output.line(0, code.len(), None, Some(show_string(&s, res)), None);
     output.finalise();
     Ok(output)
 }
 
-pub fn analyse_string<'a>(raw: &'a [u8], decoded: &str, res: Resources<'a>) -> Result<DisCode<'a>, DisError> {
+pub fn analyse_string<'a>(raw: &'a [u8], res: Resources<'a>) -> Result<DisCode<'a>, DisError> {
+    let size = raw.len();
+    let last_null = *raw.last().unwrap() == 0;
+    let last_decoded_null = raw.last().unwrap() ^ XOR_KEY[(size - 1) % XOR_KEY.len()] ^ 0xFF == 0;
+    let decoded;
+    let mut raw_buf = raw.to_vec();
+    dexor(&mut raw_buf[..]);
+    if last_null || last_decoded_null {
+        decoded = crate::encoding::decode(&raw_buf[0..raw_buf.len() - 1]);
+    } else {
+        decoded = crate::encoding::decode(&raw_buf[..]);
+    }
     let mut output = DisCode::new(raw, res.first_pass);
-    output.line(0, raw.len(), None, Some(show_string(decoded, res)), None);
+    output.line(0, raw.len(), None, Some(show_string(&decoded, res)), None);
     output.finalise();
     Ok(output)
 }
@@ -288,7 +301,7 @@ pub fn analyse_code<'a>(code: &'a [u8], res: Resources<'a>) -> Result<(Option<St
         output.line(pos, pos, None, None, Some(format!("string pool start: {string_count} strings")));
         for string_idx in 0..string_count {
             let string_end = pos + code[pos..].iter().position(|b| *b == 0).expect("unterminated string");
-            let s = encoding_rs::WINDOWS_1250.decode_without_bom_handling_and_without_replacement(&code[pos..string_end]).unwrap();
+            let s = crate::encoding::decode(&code[pos..string_end]);
             output.line(pos, string_end + 1, Some(show_string(&s, res)), None, Some(format!("string #{string_idx} / 0x{string_idx:02x}")));
             strings.push(s.to_string());
             pos = string_end + 1;

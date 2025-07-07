@@ -39,9 +39,12 @@ impl DisIns {
         let op = op_byte as usize;
         let imm_size = DisOp::IMM_SIZE[op];
         if imm_size == usize::MAX {
-            return Err(DisError::MalformedCode(format!("unknown opcode at {:04x}: {:02x}", pos, code[pos])));
+            return Err(DisError::MalformedCode(format!("unknown opcode at {pos:04x}: {:02x}", code[pos])));
         }
         pos += 1;
+        if pos + imm_size > code.len() {
+            return Err(DisError::MalformedCode(format!("invalid opcode at {pos:04x}: {:02x}", code[pos])));
+        }
         let mut buf = [0; 4];
         buf[0..imm_size].copy_from_slice(&code[pos..pos + imm_size]);
         pos += imm_size;
@@ -736,6 +739,7 @@ opcodes! {
     UnkE1(0xE1, 0, 2, 0), // something with animation |
     UnkE2(0xE2, 0, 2, 0), // set fade density? |
     FntCreate(0xE3, 0, 2, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Text);
         out.decomp = Some(format!("create font\n- font: {}\n- id:   {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
     }),
     ChrMove(0xE4, 0, 3, 0, {
