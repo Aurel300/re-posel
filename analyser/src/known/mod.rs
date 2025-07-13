@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use walkthrough::WtStep;
 
-use crate::{adb::AdbEntry, dis::DisCode, templates::nav::NavTree, Resources};
+use crate::{adb::AdbEntry, templates::nav::NavTree, Resources};
 #[allow(unused_imports)]
 use crate::AdbEntryKind;
 

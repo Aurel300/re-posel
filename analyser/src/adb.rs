@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{patches::Patcher, xor::{dexor, XOR_KEY}};
+use crate::patches::Patcher;
 
 pub struct AdbIndexEntry {
     idx: usize,
@@ -19,8 +19,6 @@ pub enum AdbEntryKind {
         decoded: String,
         _ignore_last: bool,
     },
-    //SmallString(String),
-    //Raw(Vec<u8>),
     Raw(Vec<u8>),
     // Empty,
 }
@@ -44,6 +42,26 @@ pub struct AdbXref {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdbXrefTextKind {
+    Dialogue,
+    DisplayName,
+    Var,
+
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdbXrefPathKind {
+    Animation,
+    Character,
+    Cursor,
+    Picture,
+    Sound,
+
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdbXrefKind {
     DialogueText,
     Scene,
@@ -51,8 +69,12 @@ pub enum AdbXrefKind {
     GlobalW,
     GlobalWConst(u32),
     Code,
+    Item,
+    Text(AdbXrefTextKind),
+    Path(AdbXrefPathKind),
     Region,
-    Text,
+    Pos,
+    ParentOf(Box<AdbXrefKind>),
 }
 
 #[derive(Default, Debug)]
@@ -90,11 +112,12 @@ impl AdbEntry {
             && (self.region.is_some()
                 || key.ends_with(".rp")
                 || key.ends_with(".r")
-                || self.xrefs.iter().any(|xref| xref.kind == AdbXrefKind::Region))
+                || self.xrefs.iter().any(|xref| matches!(xref.kind, AdbXrefKind::Region | AdbXrefKind::Pos)))
     }
 
     pub fn is_text(&self) -> bool {
-        self.xrefs.iter().any(|xref| xref.kind == AdbXrefKind::Text)
+        // TODO: treat paths differently
+        self.xrefs.iter().any(|xref| matches!(xref.kind, AdbXrefKind::Text(_) | AdbXrefKind::Path(_)))
     }
 
     pub fn is_dialogue_text(&self) -> bool {

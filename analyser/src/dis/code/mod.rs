@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-use crate::{adb::{AdbXref, AdbXrefKind}, Resources, SCB, SE};
+use crate::{adb::{AdbXref, AdbXrefKind, AdbXrefTextKind, AdbXrefPathKind}, Resources, SCB, SE};
 
 use super::{DisCode, DisError};
 
@@ -182,6 +182,19 @@ impl<'a> DisSym<'a> {
                 loc: None,
                 kind,
             });
+            return;
+        }
+        match value {
+            DisValue::Binop("+s", lhs, box DisValue::Unop("i2s", box DisValue::Unop("global", _rhs))) => {
+                if let Ok(lhs_key) = self.eval_str(lhs) {
+                    self.xrefs.push(AdbXref {
+                        other_key: lhs_key,
+                        loc: None,
+                        kind: AdbXrefKind::ParentOf(Box::new(kind)),
+                    });
+                }
+            }
+            _ => (),
         }
     }
 
@@ -330,7 +343,6 @@ impl<'a> DisSym<'a> {
 
 pub fn analyse(
     code: &[u8],
-    opcode_offset: u8,
     code_start: usize,
     strings: &[String],
     res: Resources,
@@ -354,7 +366,7 @@ pub fn analyse(
         Data,
     }
     let mut marked = HashMap::new();
-    let mut decompiler = Decompiler::new(code_start, opcode_offset, code);
+    let mut decompiler = Decompiler::new(code_start, code);
     while let Some(head) = queue.pop_front() {
         if code.len() <= head.pos {
             return Err(DisError::MalformedCode(format!("pos {:04x} exceeds code length {}", code_start + head.pos, code.len())));
@@ -365,7 +377,7 @@ pub fn analyse(
             Some(ByteMark::Data) => return Err(DisError::MalformedCode(format!("pos {:04x} marked as op (previously marked as data)", code_start + head.pos))),
             None => { marked.insert(head.pos, ByteMark::Op { stack_len: head.op_stack.items.len() }); }
         }
-        let (pos, op) = match DisIns::analyse_one(code, opcode_offset, head.pos) {
+        let (pos, op) = match DisIns::analyse_one(code, head.pos) {
             Ok(v) => v,
             Err(err) => {
                 output.error = true;

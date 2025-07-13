@@ -15,7 +15,7 @@ struct OpCtxOut {
     decomp: Option<String>,
 }
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 thread_local! {
     static STATS: RefCell<[u64; 256]> = RefCell::new([0; 256]);
 }
@@ -24,18 +24,65 @@ pub fn stats() -> [u64; 256] {
     STATS.with(|k| k.borrow().clone())
 }
 
+const MAP_1_0_EN: [u8; 256] = {
+    let mut mapping = [0; 256];
+    let mut i = 0usize;
+    while i < 256 {
+        mapping[i] = i as u8;
+        i += 1;
+    }
+    mapping
+};
+const MAP_1_0_PL: [u8; 256] = {
+    let mut mapping = [0; 256];
+    let mut i = 0usize;
+    while i < 256 {
+        mapping[i] = (match i {
+            0x00..0x07 => i + 59,
+            0x07..0x18 => i + 35,
+            0x18..0xCE => i + 42,
+            0xCE..0xF6 => i - 204,
+            _ => i,
+        }) as u8;
+        i += 1;
+    }
+    mapping
+};
+const MAP_1_03_BU: [u8; 256] = {
+    let mut mapping = [0; 256];
+    let mut i = 0usize;
+    while i < 256 {
+        mapping[i] = (match i {
+            0x00..0xCE => i + 42,
+            0xD1..0xF6 => i - 204,
+            0xCE => 0xF8,
+            0xCF => 0xF9,
+            0xD0 => 0xFA,
+            _ => i,
+        }) as u8;
+        i += 1;
+    }
+    mapping
+};
+
+thread_local! {
+    static OPCODE_MAP: Cell<&'static [u8; 256]> = Cell::new(&MAP_1_0_EN);
+}
+
+pub fn set_opcode_map(id: &str) {
+    OPCODE_MAP.set(match id {
+        "1.0en" => &MAP_1_0_EN,
+        "1.0pl" => &MAP_1_0_PL,
+        "1.03bu" => &MAP_1_03_BU,
+        _ => panic!("no such opcode mapping"),
+    });
+}
+
 impl DisIns {
-    pub fn analyse_one(code: &[u8], opcode_offset: u8, mut pos: usize) -> Result<(usize, Self), DisError> {
+    pub fn analyse_one(code: &[u8], mut pos: usize) -> Result<(usize, Self), DisError> {
         let mut op_byte = code[pos];
         STATS.with(|k| k.borrow_mut()[op_byte as usize] += 1);
-        // TODO: maybe this isn't actually an offset...?
-        op_byte = match (opcode_offset, op_byte) {
-            (0xCC, 0x00..0x07) => op_byte + 59,
-            (0xCC, 0x07..0x18) => op_byte + 35,
-            (0xCC, 0x18..0xCE) => op_byte + 42,
-            (0xCC, 0xCE..0xF6) => op_byte - 204,
-            _ => op_byte,
-        };
+        op_byte = OPCODE_MAP.get()[op_byte as usize];
         let op = op_byte as usize;
         let imm_size = DisOp::IMM_SIZE[op];
         if imm_size == usize::MAX {
@@ -390,6 +437,7 @@ opcodes! {
         syms.push(branch);
     }), // obj[0xC1] = ip; ip += imm16() |
     OnCombine(0x3F, 2, 1, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Item);
         let mut branch = ctx.clone();
         branch.jump = Some(DisJump::OnCombineFallthrough);
         branch.pos = (ctx.pos as i16 + imm.as_i16()) as usize + 3;
@@ -403,6 +451,7 @@ opcodes! {
         if matches!(a, DisValue::Const(255)) {
             out.decomp = Some(format!("{SDB}self{SE}.cursor = default"));
         } else {
+            ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Cursor));
             out.decomp = Some(format!("{SDB}self{SE}.cursor = {}", ctx.show_eval_str(&a)));
         }
     }),
@@ -411,14 +460,19 @@ opcodes! {
         out.decomp = Some(format!("{SDB}self{SE}.region = {}", ctx.show_eval_str(&a)));
     }),
     SetPicture(0x45, 0, 1, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Picture));
         out.decomp = Some(format!("{SDB}self{SE}.picture = {}", ctx.show_eval_str(&a)));
     }),
-    Unk46(0x46, 0, 1, 0), // something with animation spop() for object? |
+    SetAnim(0x46, 0, 1, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Animation));
+        out.decomp = Some(format!("{SDB}self{SE}.animation = {}", ctx.show_eval_str(&a)));
+    }),
     SetPriority(0x47, 0, 1, 0, {
         out.decomp = Some(format!("{SDB}self{SE}.priority = {}", ctx.show_eval_int(&a)));
     }),
     Unk48(0x48, 0, 0, 0), // ? something with screen resolution |
     SetDisplay(0x49, 0, 1, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Text(AdbXrefTextKind::DisplayName));
         out.decomp = Some(format!("{SDB}self{SE}.displayName = {}", ctx.show_eval_str(&a)));
     }),
     Unk4A(0x4A, 0, 2, 0), // ? set globals to pop(), pop() |
@@ -431,6 +485,7 @@ opcodes! {
         out.decomp = Some(format!("{SDB}clone{SE}.add({}, {})", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
     }),
     ScrRemove(0x4E, 0, 1, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Code);
         out.decomp = Some(format!("{SDB}screen{SE}.remove({})", ctx.show_eval_str(&a)));
     }),
     SwitchTo4F(0x4F, 0, 1, 0, {
@@ -443,41 +498,60 @@ opcodes! {
     }),
     SetChoiceText(0x52, 0, 2, 0, {
         ctx.xref_str(&b, AdbXrefKind::Code);
+        ctx.xref_str(&a, AdbXrefKind::Text(AdbXrefTextKind::DisplayName));
         out.decomp = Some(format!("{SDB}obj{SE}[{}].displayName = {}", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
     }), // something with text spop(), object spop() |
     Unk53(0x53, 0, 2, 0), // something with region spop(), object spop() |
     Unk54(0x54, 0, 2, 0), // change screen patch? with region spop(), object spop() |
-    Unk55(0x55, 0, 3, 0), // associate character??? |
+    ChrAssocObj(0x55, 0, 3, 0, {
+        ctx.xref_str(&c, AdbXrefKind::Path(AdbXrefPathKind::Character));
+        ctx.xref_str(&b, AdbXrefKind::Path(AdbXrefPathKind::Character));
+        ctx.xref_str(&a, AdbXrefKind::Code);
+        out.decomp = Some(format!("{SDB}char{SE}[{}].associateObj(id: {}, obj: {})", ctx.show_eval_str(&c), ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
+    }),
     Unk56(0x56, 0, 1, 0), // unload character spop() |
     Unk57(0x57, 0, 2, 0), // associate character??? |
     ChrAnimate(0x58, 0, 2, 0, {
+        ctx.xref_str(&b, AdbXrefKind::Path(AdbXrefPathKind::Character));
         out.decomp = Some(format!("{SDB}char{SE}[{}].animate({})", ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
     }),
     ChrHide(0x59, 0, 1, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Character));
         out.decomp = Some(format!("{SDB}char{SE}[{}].hide()", ctx.show_eval_str(&a)));
     }),
     ChrShow(0x5A, 0, 1, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Character));
         out.decomp = Some(format!("{SDB}char{SE}[{}].show()", ctx.show_eval_str(&a)));
     }),
     ChrDisable(0x5B, 0, 1, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Character));
         out.decomp = Some(format!("{SDB}char{SE}[{}].disable()", ctx.show_eval_str(&a)));
     }),
     ChrEnable(0x5C, 0, 1, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Character));
         out.decomp = Some(format!("{SDB}char{SE}[{}].enable()", ctx.show_eval_str(&a)));
     }),
     ChrMoveUser(0x5D, 0, 3, 0, {
+        ctx.xref_str(&c, AdbXrefKind::Path(AdbXrefPathKind::Character));
+        ctx.xref_str(&b, AdbXrefKind::Pos);
         out.decomp = Some(format!("{SDB}char{SE}[{}].moveTo(pos: {}, pose: {}, usermove)", ctx.show_eval_str(&c), ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
     }),
     ChrLeave(0x5E, 0, 2, 0, {
+        ctx.xref_str(&b, AdbXrefKind::Path(AdbXrefPathKind::Character));
         out.decomp = Some(format!("{SDB}char{SE}[{}].leave(pos: {})", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
     }),
     ChrSet(0x5F, 0, 3, 0, {
+        ctx.xref_str(&c, AdbXrefKind::Path(AdbXrefPathKind::Character));
+        ctx.xref_str(&b, AdbXrefKind::Pos);
         out.decomp = Some(format!("set character\n- char: {}\n- pos:  {}\n- pose: {}", ctx.show_eval_str(&c), ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
     }), // set character??? |
     ChrDir(0x60, 0, 2, 0, {
+        ctx.xref_str(&b, AdbXrefKind::Path(AdbXrefPathKind::Character));
         out.decomp = Some(format!("set character dir\n- char: {}\n- pose: {}", ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
     }), // set character dir??? |
     ChrPoint(0x61, 0, 2, 0, {
+        ctx.xref_str(&b, AdbXrefKind::Path(AdbXrefPathKind::Character));
+        ctx.xref_str(&a, AdbXrefKind::Pos);
         out.decomp = Some(format!("{SDB}char{SE}[{}].pointTo({})", ctx.show_eval_str(&b), ctx.show_eval_str(&a)));
     }),
     UserDisable(0x62, 0, 0, 0, {
@@ -498,11 +572,14 @@ opcodes! {
     Unk69(0x69, 0, 0, 0), // ???? resolution, work area?? then set a global to 1 |
     Unk6A(0x6A, 0, 0, 0), // maybe remove some objects? |
     Unk6B(0x6B, 0, 0, 0), // set a global to 1 |
-    Unk6C(0x6C, 0, 1, 0), // something with mouse picture?? |
+    CursorSet(0x6C, 0, 1, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Cursor));
+        out.decomp = Some(format!("{SDB}cursors{SE}.set({})", ctx.show_eval_str(&a)));
+    }),
     Unk6D(0x6D, 0, 1, 0), // something with object picture? |
     Unk6E(0x6E, 0, 0, 0), // ? |
     InvAdd6F(0x6F, 0, 1, 0, {
-        ctx.xref_str(&a, AdbXrefKind::Code);
+        ctx.xref_str(&a, AdbXrefKind::Item);
         out.decomp = Some(format!("{SDB}inv{SE}.add({})", ctx.show_eval_str(&a)));
     }),
     Unk70(0x70, 0, 1, 0), // remove object spop() from inventory |
@@ -519,9 +596,11 @@ opcodes! {
         out.decomp = Some(format!("{SDB}cd{SE}.resume()"));
     }),
     AnimPlay(0x75, 0, 1, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Animation));
         out.decomp = Some(format!("{SDB}anim{SE}.play({})", ctx.show_eval_str(&a)));
     }),
     SmpPlay(0x76, 0, 1, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Sound));
         out.decomp = Some(format!("{SDB}sample{SE}.play({})", ctx.show_eval_str(&a)));
     }),
     Unk77(0x77, 0, 0, 0), // ? set a state flag to 1 |
@@ -532,6 +611,8 @@ opcodes! {
     }), // dialogue??? ("tell sound") |
     Say7B(0x7B, 0, 2, 0), // set a global flag then dialogue??? |
     Say7C(0x7C, 0, 3, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Sound));
+        ctx.xref_str(&b, AdbXrefKind::Text(AdbXrefTextKind::Dialogue));
         out.decomp = Some(format!("say\n- sound: {}\n- text: {}", ctx.show_eval_str(&a), ctx.show_eval_str(&b)));
     }), // set a global flag then dialogue??? |
     Say7D(0x7D, 0, 2, 0), // dialogue??? |
@@ -549,6 +630,8 @@ opcodes! {
         out.decomp = Some(format!("{SDB}anim{SE}.pos = ({}, {})", ctx.show_eval_int(&b), ctx.show_eval_int(&a)));
     }), // ? set two state vars to pop(), pop() |
     SmpName(0x87, 0, 1, 0, {
+        ctx.xref_str(&a, AdbXrefKind::GlobalWConst(0));
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Sound));
         out.decomp = Some(format!("{SDB}global{SE}[{}] = 0\n{SDB}sample{SE}.name = {}", ctx.show_eval_str(&a), ctx.show_eval_str(&a)));
     }), // global[pop()] = 0, then ... |
     SmpLoop(0x88, 0, 0, 0, {
@@ -596,7 +679,9 @@ opcodes! {
     GetObjX(0x9A, 0, 1, 1, { out.pushing[0] = unop("object.x", a); }), // push(object in scene???(spop())) |
     GetObjY(0x9B, 0, 1, 1, { out.pushing[0] = unop("object.y", a); }), // push(object in scene???(spop())) |
     Unk9C(0x9C, 0, 1, 0), // set a global to pop() |
-    Unk9D(0x9D, 0, 1, 0), // ??? |
+    Unk9D(0x9D, 0, 1, 0, {
+        out.decomp = Some(format!("unk9D(save slot? {})", ctx.show_eval_int(&a)));
+    }), // save(slot)? autosave? |
     Quit(0x9E, 0, 0, 0, {
         out.decomp = Some("quit".to_string());
         ctx.exit = true;
@@ -641,7 +726,9 @@ opcodes! {
     }),
     UnkB4(0xB4, 0, 0, 1), // push(a state var?) |
     UnkB5(0xB5, 0, 0, 0), // ? set a state flag to 1 |
-    UnkB6(0xB6, 0, 2, 0), // ? set two state vars to pop(), pop() |
+    FntSetSize(0xB6, 0, 2, 0, {
+        out.decomp = Some(format!("{SDB}fonts{SE}.size = (w: {}, h: {})", ctx.show_eval_int(&b), ctx.show_eval_int(&a)));
+    }),
     UnkB7(0xB7, 0, 1, 0), // genregion???(spop()) |
     UnkB8(0xB8, 0, 1, 0), // ???(spop()) |
     Push35(0xB9, 0, 0, 1, { out.pushing[0] = DisValue::Const(35); }), // ? max inventory?
@@ -660,6 +747,7 @@ opcodes! {
     UnkC4(0xC4, 0, 1, 1, { out.pushing[0] = unop("object.h", a); }), // push(some var from object spop()) |
     UnkC5(0xC5, 0, 2, 0), // something with object (in current scene)?? |
     CursorAdd(0xC6, 0, 1, 1, {
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Picture));
         out.decomp = Some(format!("{SDB}cursors{SE}.add({})", ctx.show_eval_str(&a)));
         out.pushing[0] = unop("cursors", a);
     }),
@@ -682,17 +770,18 @@ opcodes! {
         syms.push(branch);
     }), // obj[0xC9] = ip; ip += imm16() |
     StartFilm(0xCB, 0, 2, 0, {
-        ctx.xref_str(&a, AdbXrefKind::Text);
-        ctx.xref_str(&b, AdbXrefKind::Text);
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Other));
+        ctx.xref_str(&b, AdbXrefKind::Path(AdbXrefPathKind::Other));
         out.decomp = Some(format!("start film({}, {})", ctx.show_eval_str(&a), ctx.show_eval_str(&b)));
     }),
-    UnkCC(0xCC, 0, 0, 0), // stop film |
+    StopFilm(0xCC, 0, 0, 0), // stop film |
     UnkCD(0xCD, 0, 3, 1), // get mouse picture? region? |
     UnkCE(0xCE, 0, 2, 0, {
         out.decomp = Some(format!("unkCE({}, {})", ctx.show_eval_int(&b), ctx.show_eval_int(&a)));
     }), // ? set globals to pop(), pop() |
     UnkCF(0xCF, 0, 1, 0), // insert rain picture spop() to scene? |
     SetFog(0xD0, 0, 3, 0, {
+        ctx.xref_str(&c, AdbXrefKind::Path(AdbXrefPathKind::Picture));
         out.decomp = Some(format!("set fog\n- a: {}\n- b: {}\n- picture: {}", ctx.show_eval_int(&a), ctx.show_eval_int(&b), ctx.show_eval_str(&c)));
     }),
     UnkD1(0xD1, 2, 0, 0, {
@@ -730,6 +819,7 @@ opcodes! {
     UnkDA(0xDA, 0, 2, 0), // set rain density and density change to pop(), pop() |
     UnkDB(0xDB, 0, 3, 0), // leave character??? |
     ChrStop(0xDC, 0, 2, 0, {
+        ctx.xref_str(&a, AdbXrefKind::Path(AdbXrefPathKind::Character));
         out.decomp = Some(format!("{SDB}char{SE}[{}].stop({})", ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
     }),
     UnkDD(0xDD, 0, 1, 0), // something with animation |
@@ -739,10 +829,12 @@ opcodes! {
     UnkE1(0xE1, 0, 2, 0), // something with animation |
     UnkE2(0xE2, 0, 2, 0), // set fade density? |
     FntCreate(0xE3, 0, 2, 0, {
-        ctx.xref_str(&a, AdbXrefKind::Text);
-        out.decomp = Some(format!("create font\n- font: {}\n- id:   {}", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
+        ctx.xref_str(&a, AdbXrefKind::Text(AdbXrefTextKind::Other));
+        out.decomp = Some(format!("{SDB}fonts{SE}.create(font: {}, id: {})", ctx.show_eval_str(&a), ctx.show_eval_int(&b)));
     }),
     ChrMove(0xE4, 0, 3, 0, {
+        ctx.xref_str(&c, AdbXrefKind::Path(AdbXrefPathKind::Character));
+        ctx.xref_str(&b, AdbXrefKind::Pos);
         out.decomp = Some(format!("{SDB}char{SE}[{}].moveTo(pos: {}, pose: {}, non-usermove)", ctx.show_eval_str(&c), ctx.show_eval_str(&b), ctx.show_eval_int(&a)));
     }),
     OnKey(0xE5, 2, 1, 0, {
@@ -775,4 +867,8 @@ opcodes! {
     UnkF5(0xF5, 0, 1, 0), // ???(spop()) something with current scene |
     UnkF6(0xF6, 0, 1, 0), // set step volume to pop() |
     UnkF7(0xF7, 0, 1, 0), // ? set a state flag to pop() |
+
+    UnkF8(0xF8, 0, 1, 0),
+    Savepic(0xF9, 0, 1, 0), // save screenshot?
+    UnkFA(0xFA, 0, 1, 0), // SetAsFontPicture ?
 }

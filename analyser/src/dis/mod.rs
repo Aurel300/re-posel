@@ -101,7 +101,7 @@ pub fn show_string(s: &str, res: Resources) -> String {
 pub fn analyse_region<'a>(entry: &'a AdbEntry, res: Resources<'a>) -> Result<(String, DisCode<'a>), DisError> {
     let code = entry.raw();
     let mut output = DisCode::new(code, res.first_pass);
-    if code.len() < 0x26 {
+    if code.len() < 0x24 {
         return Err(DisError::TooShort);
     }
 
@@ -122,39 +122,42 @@ pub fn analyse_region<'a>(entry: &'a AdbEntry, res: Resources<'a>) -> Result<(St
     output.line(0x20, 0x22, Some(format!("pos x: {base_x}")), None, None);
     let base_y = u16::from_le_bytes(code[0x22..0x24].try_into().unwrap());
     output.line(0x22, 0x24, Some(format!("pos y: {base_y}")), None, None);
-    let shape_count = u16::from_le_bytes(code[0x24..0x26].try_into().unwrap());
-    output.line(0x24, 0x26, Some(format!("shape count: {shape_count}")), None, None);
 
-    let mut pos = 0x26;
     let mut shapes = Vec::new();
-    for shape_idx in 0..shape_count {
-        output.line(pos, pos, None, None, Some(format!("shape #{shape_idx}")));
-        if pos + 1 >= code.len() {
-            return Err(DisError::TooShort);
-        }
+    if code.len() >= 0x26 {
+        let shape_count = u16::from_le_bytes(code[0x24..0x26].try_into().unwrap());
+        output.line(0x24, 0x26, Some(format!("shape count: {shape_count}")), None, None);
 
-        let point_count = u16::from_le_bytes(code[pos..pos + 2].try_into().unwrap());
-        output.line(pos, pos + 2, Some(format!("point count: {point_count}")), None, None);
-        pos += 2;
-        if pos + 6 * point_count as usize > code.len() {
-            return Err(DisError::TooShort);
-        }
-        let mut points = Vec::new();
-        for point_idx in 0..point_count {
-            let pos_x = u16::from_le_bytes(code[pos..pos + 2].try_into().unwrap());
-            pos += 2;
-            let pos_y = u16::from_le_bytes(code[pos..pos + 2].try_into().unwrap());
-            pos += 2;
-            let pos_z = u16::from_le_bytes(code[pos..pos + 2].try_into().unwrap());
-            pos += 2;
-            if pos_z == 0xCDCD {
-                output.line(pos - 6, pos, Some(format!("point {point_idx}: {pos_x}, {pos_y}")), None, None);
-            } else {
-                output.line(pos - 6, pos, Some(format!("point {point_idx}: {pos_x}, {pos_y}, {pos_z}")), None, None);
+        let mut pos = 0x26;
+        for shape_idx in 0..shape_count {
+            output.line(pos, pos, None, None, Some(format!("shape #{shape_idx}")));
+            if pos + 1 >= code.len() {
+                return Err(DisError::TooShort);
             }
-            points.push((pos_x, pos_y));
+
+            let point_count = u16::from_le_bytes(code[pos..pos + 2].try_into().unwrap());
+            output.line(pos, pos + 2, Some(format!("point count: {point_count}")), None, None);
+            pos += 2;
+            if pos + 6 * point_count as usize > code.len() {
+                return Err(DisError::TooShort);
+            }
+            let mut points = Vec::new();
+            for point_idx in 0..point_count {
+                let pos_x = u16::from_le_bytes(code[pos..pos + 2].try_into().unwrap());
+                pos += 2;
+                let pos_y = u16::from_le_bytes(code[pos..pos + 2].try_into().unwrap());
+                pos += 2;
+                let pos_z = u16::from_le_bytes(code[pos..pos + 2].try_into().unwrap());
+                pos += 2;
+                if pos_z == 0xCDCD {
+                    output.line(pos - 6, pos, Some(format!("point {point_idx}: {pos_x}, {pos_y}")), None, None);
+                } else {
+                    output.line(pos - 6, pos, Some(format!("point {point_idx}: {pos_x}, {pos_y}, {pos_z}")), None, None);
+                }
+                points.push((pos_x, pos_y));
+            }
+            shapes.push(points);
         }
-        shapes.push(points);
     }
     let mut svg = String::new();
     let reg_width = entry.region.as_ref().and_then(|r| r.width).map(|w| w as u16)
@@ -281,12 +284,12 @@ pub fn analyse_code<'a>(code: &'a [u8], res: Resources<'a>) -> Result<(Option<St
     if size != code.len() {
         return Err(DisError::LengthMismatch);
     }
-    let opcode_offset = code[7].wrapping_sub(0x05);
+    // let opcode_offset = code[7].wrapping_sub(0x05);
     let code_size = u16::from_le_bytes(code[0x12..0x14].try_into().unwrap()) as usize;
     let string_count = u16::from_le_bytes(code[0x14..0x16].try_into().unwrap()) as usize;
 
     output.line(4, 6, Some(format!("object size: {size} / 0x{size:04x} bytes")), None, None);
-    output.line(7, 8, Some(format!("opcode offset: 0x{opcode_offset:02x}")), None ,None);
+    // output.line(7, 8, Some(format!("opcode offset: 0x{opcode_offset:02x}")), None ,None);
     output.line(8, 12, Some("magic".to_string()), None, None);
     output.line(0x12, 0x14, Some(format!("code size: {code_size} / 0x{code_size:04x} bytes")), None, None);
     output.line(0x14, 0x16, Some(format!("string count: {string_count}")), None, None);
@@ -313,7 +316,7 @@ pub fn analyse_code<'a>(code: &'a [u8], res: Resources<'a>) -> Result<(Option<St
         let code_start = 0x18;
         let code_end = string_pool_start;
         output.line(code_start, code_start, None, None, Some("<span class=\"jump\"></span>code start".to_string()));
-        match output.with_offset(code_start, |output| code::analyse(&code[code_start..code_end], opcode_offset, code_start, &strings[..], res, output)) {
+        match output.with_offset(code_start, |output| code::analyse(&code[code_start..code_end], code_start, &strings[..], res, output)) {
             Ok(pretty) => {
                 if !pretty.is_empty() {
                     return Ok((Some(pretty), output));

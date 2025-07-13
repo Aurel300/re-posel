@@ -1,5 +1,7 @@
 #![allow(clippy::manual_range_contains)]
 #![feature(box_patterns)]
+#![feature(const_for)]
+#![feature(const_trait_impl)]
 #![feature(iter_array_chunks)]
 #![feature(let_chains)]
 #![feature(option_get_or_insert_default)]
@@ -20,6 +22,8 @@ mod templates;
 mod xor;
 
 use adb::{AdbEntry, AdbEntryKind, AdbXref, AdbXrefKind};
+
+use crate::dis::code::opcodes::set_opcode_map;
 
 pub const SDB: &str = "<span class=\"hl-dyn\">";
 pub const SCB: &str = "<span class=\"hl-com\">";
@@ -79,6 +83,11 @@ enum CliCommand {
         #[arg(long)]
         #[arg(num_args(2..=2))]
         group: Vec<PathBuf>,
+
+        /// Sets the game version. Affects decompilation of code objects.
+        /// Possible values: 1.0en (default), 1.0pl, 1.03bu
+        #[arg(long)]
+        version: Option<String>,
 
         /// When provided, only the given objects will be decompiled. This
         /// value is a regular expression.
@@ -168,7 +177,21 @@ fn main() {
     let db = std::fs::read(&db_path).unwrap();
 
     match command {
-        CliCommand::Decompile { group, filter, output, analyse: do_analyse, crossref: do_xref, apply_known: do_apply_known, dryrun, .. } => {
+        CliCommand::Decompile {
+            group,
+            version,
+            filter,
+            output,
+            analyse: do_analyse,
+            crossref: do_xref,
+            apply_known: do_apply_known,
+            dryrun,
+            ..
+        } => {
+            if let Some(version) = version {
+                set_opcode_map(&version);
+            }
+
             // Discard patches if not applying to known version.
             if !do_apply_known {
                 patcher.clear();
@@ -394,10 +417,8 @@ fn main() {
                         code
                     }
                     AdbEntryKind::Raw(c) => {
-                        // count_raw += 1;
-                        // dis::analyse_raw(c, res).unwrap()
-                        // TODO: this is a stopgap
-                        count_string += 1;
+                        count_raw += 1;
+                        //dis::analyse_raw(c, res).unwrap()
                         dis::analyse_string(c, res).unwrap()
                     }
                     AdbEntryKind::Code(c) => {
