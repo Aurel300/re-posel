@@ -52,6 +52,7 @@ pub(super) fn apply_known_dialogues(c: &mut KnownContext) {
             k.global = Some(AdbEntryGlobal {
                 values: [
                     (1, "fainted, C1 end".to_string()),
+                    (3, "left mines".to_string()),
                     (14, "C2 start".to_string()),
                     (16, "game intro".to_string()),
                 ].into(),

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-use crate::{adb::{AdbXref, AdbXrefKind, AdbXrefTextKind, AdbXrefPathKind}, Resources, SCB, SE};
+use crate::{adb::{AdbXref, AdbXrefKind, AdbXrefPathKind, AdbXrefRegionKind, AdbXrefTextKind}, Resources, SCB, SE};
 
 use super::{DisCode, DisError};
 

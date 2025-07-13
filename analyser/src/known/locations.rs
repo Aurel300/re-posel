@@ -40,8 +40,8 @@ pub(super) fn apply_known_locations(c: &mut KnownContext) {
     c.open_key("109b", "Willow Creek: left", |c| {
         c.close_key("100f", "BG", |_| {});
         c.close_key("1056", "Door", |_| {});
-        c.close_key("1099", "Exit (Pub)", |_| {});
-        c.open_key("10af", "Exit", |_| {});
+        c.close_key("1099", "Exit: pub", |_| {});
+        c.open_key("10af", "Exit: map", |_| {});
         c.close_key("1151", "Box", |_| {});
         c.close_key("1152", "Stairs", |_| {});
         c.close_key("1153", "Willow Creek sign", |_| {});
@@ -82,6 +82,31 @@ pub(super) fn apply_known_locations(c: &mut KnownContext) {
 
     c.open_key("109c", "Willow Creek: pub exterior", |c| {
         c.close_key("100f", "BG", |_| {});
+        c.close_key("1002", "Anim: doors", |_| {});
+        c.close_key("1099", "Exit: interior", |_| {});
+        c.close_key("10af", "Exit: left", |_| {});
+        c.close_key("1111", "Exit: right", |_| {});
+        c.close_key("112d", "Deco: box", |_| {});
+        c.close_key("1156", "Deco: Three Kegs", |_| {});
+        c.close_key("1157", "Deco: meal menu", |_| {});
+        c.close_key("1158", "Deco: beer kegs", |_| {});
+        c.close_key("1159", "Deco: laundry", |_| {});
+        c.close_key("1193", "Deco: wagon", |_| {});
+        c.close_key("1253", "Reg: Vick", |_| {});
+        c.close_key("12e8", "Anim: Vick", |_| {});
+        c.close_key("1341", "Fog", |_| {});
+        c.close_key("15a3", "FG", |_| {});
+        c.close_key("15f2", "FG", |_| {});
+        c.close_key("1c22", "FG", |_| {});
+        c.close_key("1c2a", "Sfx: river", |_| {});
+        c.close_key("1c9d", "Anim: bird", |_| {});
+        c.close_key("1e2e", "Sfx: rain", |_| {});
+        c.close_key("1e2f", "Cutscene: Vick thunder", |_| {});
+        c.close_key("1e40", "Anim: sign", |_| {});
+        c.close_key("1e41", "Anim: laundry", |_| {});
+        c.close_key("1e63", "FG: window", |_| {});
+        c.close_key("sud", "Deco: barrel", |_| {});
+        c.close_key("r", "Walkmap", |_| {});
     });
     c.key("K1_Predhospodou", |k| {
         k.name = Some("Willow Creek: pub exterior".to_string());
@@ -91,22 +116,30 @@ pub(super) fn apply_known_locations(c: &mut KnownContext) {
     });
 
     c.open_key("109d", "Willow Creek: pub interior", |c| {
+        c.close_key("1002", "Anim: doors", |_| {});
         c.close_key("100f", "BG", |_| {});
-        c.close_key("10af", "Exit", |_| {});
-        c.close_key("115a", "Poster", |_| {});
-        c.close_key("148c", "FG counter", |_| {});
-        c.close_key("1530", "MG table right", |_| {});
-        c.close_key("1534", "MG chair", |_| {});
-        c.close_key("1535", "FG chair", |_| {});
-        c.close_key("15b2", "BG candle", |_| {});
-        c.close_key("164e", "BG glass shards", |_| {});
-        c.close_key("178c", "FG table left 1", |_| {});
-        c.close_key("1be0", "Rain sound FX", |_| {});
-        c.close_key("1fd1", "FG table right", |_| {});
-        c.close_key("1fdb", "Tom's chair", |_| {});
-        c.close_key("1fe6", "FG table left 2", |_| {});
-        c.close_key("1fe7", "Tom", |_| {});
-        c.key("r", |k| k.name = Some("Walkmap".to_string()));
+        c.close_key("10af", "Exit: exterior", |_| {});
+        c.close_key("115a", "Deco: poster", |_| {});
+        c.close_key("148c", "FG: counter", |_| {});
+        c.close_key("1530", "MG: table right", |_| {});
+        c.close_key("1534", "MG: chair", |_| {});
+        c.close_key("1535", "FG: chair", |_| {});
+        c.close_key("15b2", "BG: candle", |_| {});
+        c.close_key("164e", "BG: glass shards", |_| {});
+        c.close_key("178c", "FG: table left 1", |_| {});
+        c.close_key("1be0", "Sfx: rain", |_| {});
+        c.close_key("1fd1", "FG: table right", |_| {});
+        c.close_key("1fdb", "FG: Tom's chair", |_| {});
+        c.close_key("1fe6", "FG: table left 2", |_| {});
+        c.close_key("1fe7", "Anim: Tom", |_| {});
+        c.close_key("r", "Walkmap", |_| {});
+        c.close_key("tom", "Reg: Tom", |_| {});
+    });
+    c.key("K1_Hospoda", |k| {
+        k.name = Some("Willow Creek: pub interior".to_string());
+        k.scene.get_or_insert_default().bg_reference.extend([
+            (0, 45, "gfx1.grp/1hospoda.bmp".to_string()),
+        ]);
     });
 
     c.open_key("109f", "Castle: sitting room", |c| {
@@ -124,10 +157,20 @@ pub(super) fn apply_known_locations(c: &mut KnownContext) {
         c.close_key("1419", "FG right", |_| {});
         c.close_key("145b", "Small cabinet", |_| {});
         c.close_key("151d", "Horse (sign)", |_| {});
+        c.close_key("1d67", "Horse (statue)", |_| {});
         c.close_key("18b1", "Chair 2", |_| {});
         c.close_key("1d0a", "C2 BG", |_| {});
         c.close_key("1d66", "Chair 1", |_| {});
-        c.close_key("1d67", "Horse (statue)", |_| {});
+        c.key("1095", |k| {
+            k.name = Some("On entry".to_string());
+            k.global = Some(AdbEntryGlobal {
+                values: [
+                    (0, "normal entrance".to_string()),
+                    (3, "from mines".to_string()),
+                    // (5, "C1 intro cutscene".to_string()),
+                ].into(),
+            });
+        });
         c.key("r", |k| k.name = Some("Walkmap".to_string()));
 
         c.region_reference(&[
@@ -275,30 +318,106 @@ pub(super) fn apply_known_locations(c: &mut KnownContext) {
 
     c.open_key("10b4", "Castle: main hall (entry)", |c| {
         c.close_key("100f", "BG", |_| {});
+        c.key("1095", |k| {
+            k.name = Some("On entry".to_string());
+            k.global = Some(AdbEntryGlobal {
+                values: [
+                    (1, "from upstairs".to_string()),
+                    (2, "from dining hall L".to_string()),
+                    (3, "from dining hall R".to_string()),
+                    (4, "from outside".to_string()),
+                    (255, "reset".to_string()),
+                ].into(),
+            });
+        });
+        c.close_key("1099", "Exit: main hall (dining room)", |_| {});
+        c.close_key("10b1", "Exit: upstairs", |_| {});
+        c.close_key("10c6", "Exit: outside", |_| {});
+        c.close_key("1111", "Exit: library", |_| {});
+        c.close_key("134f", "Fog", |_| {});
+        c.close_key("1653", "Walk sounds: carpet", |_| {});
+        c.close_key("1e67", "Sfx: fireplace", |_| {});
+        c.close_key("2002", "FG", |_| {});
+        c.close_key("2003", "BG: lamps", |_| {});
+        c.close_key("2004", "Deco: door to old wing", |_| {});
+        c.close_key("2005", "BG: balcony", |_| {});
+        c.close_key("krb", "Reg: fireplace", |_| {});
+        c.close_key("psi", "FG", |_| {});
+        c.close_key("r", "Walkmap", |_| {});
+    });
+    c.key("K1_Halaven", |k| {
+        k.name = Some("Castle: main hall (entry)".to_string());
+        k.scene.get_or_insert_default().bg_reference.extend([
+            (0, 45, "gfx1.grp/1hlavniven.bmp".to_string()),
+        ]);
     });
 
     c.open_key("10b8", "Church: exterior", |c| {
         c.close_key("100f", "BG", |_| {});
+        c.close_key("1099", "Exit: rear cemetery", |_| {});
+        c.close_key("10b1", "Exit: map", |_| {});
+        c.close_key("1111", "Exit: church", |_| {});
+        c.close_key("11f7", "BG: grave", |_| {});
+        c.close_key("1213", "FG: carriage", |_| {});
+        c.close_key("1341", "Fog", |_| {});
+        c.close_key("1375", "Cutscene: seven o'clock", |_| {});
+        c.close_key("147b", "Sfx: wind", |_| {});
+        c.close_key("1828", "Anim: birds", |_| {});
+        c.close_key("190a", "Reg: gravedigger", |_| {});
+        c.close_key("1aa3", "FG", |_| {});
+        c.close_key("1aa7", "FG", |_| {});
+        c.close_key("1f4d", "Deco: enter church (fake)", |_| {});
+        c.close_key("1f52", "FG: carriage", |_| {});
+        c.close_key("1f53", "FG", |_| {});
+        c.close_key("1f54", "FG", |_| {});
+        c.close_key("1f55", "FG", |_| {});
+        c.close_key("1f56", "FG", |_| {});
+        c.close_key("1f57", "FG: thin strip", |_| {});
+        c.close_key("1f58", "FG: thin strip", |_| {});
+        c.close_key("1f59", "Deco: main entrance", |_| {});
+        c.close_key("1f72", "Inter: barrow", |_| {});
+        c.close_key("1f73", "Inter: grave", |_| {});
+        c.close_key("1f74", "Inter: grave", |_| {});
+        c.close_key("1f77", "Item: shovel", |_| {});
+        c.close_key("219c", "Deco: carriage", |_| {});
+        c.close_key("fog", "Fog", |_| {});
+        c.close_key("r", "Walkmap", |_| {});
+        c.close_key("vez", "BG: tower", |_| {});
+    });
+    c.key("K1_Kostelvchod", |k| {
+        k.name = Some("Church: exterior".to_string());
+        let s = k.scene.get_or_insert_default();
+        s.width = Some(1100);
+        s.bg_reference.extend([
+            (0, 45, "gfx1.grp/1kostel_scroll.bmp".to_string()),
+        ]);
     });
 
     c.open_key("10c0", "Castle: corridor", |c| {
+        c.close_key("1002", "Anim: Robert's doors", |_| {});
         c.close_key("100f", "BG", |_| {});
-        c.close_key("1099", "Exit (staircase)", |_| {});
-        c.close_key("10af", "Exit (room) left", |_| {});
+        c.close_key("1099", "Exit: staircase", |_| {});
+        c.close_key("10af", "Exit: room left", |_| {});
         c.open_key("10c6", "Robert's study", |c| {
             c.key("1093", |k| { k.region.get_or_insert_default(); });
         });
-        c.close_key("1111", "Exit (room) right", |_| {});
-        c.close_key("1146", "Newspaper with note", |_| {});
-        c.close_key("115b", "Clock sound FX", |_| {});
+        c.close_key("1111", "Exit: room right", |_| {});
+        c.close_key("1146", "Inter: Newspaper with note", |_| {});
+        c.close_key("115b", "Sfx: clock", |_| {});
         c.close_key("124b", "Jennifer Gordon picture", |_| {});
-        c.close_key("143a", "MG middle table", |_| {});
-        c.close_key("148a", "MG back pillar", |_| {});
-        c.close_key("159b", "Newspaper rack", |_| {});
-        c.close_key("1909", "FG left", |_| {});
+        c.close_key("143a", "FG", |_| {});
+        c.close_key("148a", "FG", |_| {});
+        c.close_key("159b", "Deco: Newspaper rack", |_| {});
+        c.close_key("1909", "FG", |_| {});
         c.close_key("1d11", "Victoria's room", |_| {});
-        c.close_key("206d", "Meals", |_| {});
-        c.key("r", |k| k.name = Some("Walkmap".to_string()));
+        c.close_key("206d", "Deco: Meals", |_| {});
+        c.close_key("r", "Walkmap", |_| {});
+    });
+    c.key("K1_Chodba2", |k| {
+        k.name = Some("Castle: corridor".to_string());
+        k.scene.get_or_insert_default().bg_reference.extend([
+            (0, 45, "gfx1.grp/1chodba1.bmp".to_string()),
+        ]);
     });
 
     c.open_key("10c8", "Castle: attic", |c| {
@@ -325,7 +444,7 @@ pub(super) fn apply_known_locations(c: &mut KnownContext) {
         c.close_key("1d8f", "Walk sounds (BG carpet)", |_| {});
         c.close_key("1d90", "Box", |_| {});
         c.close_key("1d91", "Corner", |_| {});
-        c.key("r", |k| k.name = Some("Walkmap".to_string()));
+        c.close_key("r", "Walkmap", |_| {});
 
         c.key("1095", |k| {
             k.name = Some("Case".to_string());

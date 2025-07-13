@@ -42,21 +42,31 @@ pub struct AdbXref {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AdbXrefTextKind {
-    Dialogue,
-    DisplayName,
-    Var,
-
-    Other,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdbXrefPathKind {
     Animation,
     Character,
     Cursor,
     Picture,
     Sound,
+
+    Other,
+}
+
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdbXrefRegionKind {
+    ScreenPos,
+    ScreenRegion,
+    Walkmap,
+
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdbXrefTextKind {
+    Dialogue,
+    DisplayName,
+    Var,
 
     Other,
 }
@@ -72,8 +82,7 @@ pub enum AdbXrefKind {
     Item,
     Text(AdbXrefTextKind),
     Path(AdbXrefPathKind),
-    Region,
-    Pos,
+    Region(AdbXrefRegionKind),
     ParentOf(Box<AdbXrefKind>),
 }
 
@@ -112,7 +121,7 @@ impl AdbEntry {
             && (self.region.is_some()
                 || key.ends_with(".rp")
                 || key.ends_with(".r")
-                || self.xrefs.iter().any(|xref| matches!(xref.kind, AdbXrefKind::Region | AdbXrefKind::Pos)))
+                || self.xrefs.iter().any(|xref| matches!(xref.kind, AdbXrefKind::Region(_))))
     }
 
     pub fn is_text(&self) -> bool {
